@@ -1,5 +1,6 @@
 """为 MaiBot 提供 OpenAI 兼容的文本转语音能力。"""
 
+from dataclasses import dataclass
 from random import random
 from time import monotonic
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,20 @@ from .core.client import (
 )
 
 
+PROBABILITY_REPLY_STATE_MIN_TTL_SECONDS = 60.0
+PROBABILITY_REPLY_STATE_TIMEOUT_BUFFER_SECONDS = 30.0
+
+
+@dataclass
+class ProbabilityReplyState:
+    """同一轮回复在分段发送期间复用的概率判定。"""
+
+    should_convert: bool
+    expires_at: float
+    prepared_from_reply: bool
+    started: bool = False
+
+
 class PluginSectionConfig(PluginConfigBase):
     """插件基础配置。"""
 
@@ -32,7 +47,7 @@ class PluginSectionConfig(PluginConfigBase):
         json_schema_extra={"label": "启用插件", "order": 0},
     )
     config_version: str = Field(
-        default="1.1.0",
+        default="1.2.0",
         description="配置版本",
         json_schema_extra={"label": "配置版本", "order": 1, "readonly": True},
     )
@@ -262,6 +277,7 @@ class OpenAITTSPlugin(MaiBotPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._client: Optional[OpenAITTSClient] = None
+        self._probability_reply_states: Dict[str, ProbabilityReplyState] = {}
 
     async def on_load(self) -> None:
         """创建 HTTP 客户端并检查关键配置。"""
@@ -283,6 +299,7 @@ class OpenAITTSPlugin(MaiBotPlugin):
     async def on_unload(self) -> None:
         """释放 HTTP 会话。"""
 
+        self._probability_reply_states.clear()
         if self._client is not None:
             await self._client.close()
         self._client = None
@@ -306,6 +323,7 @@ class OpenAITTSPlugin(MaiBotPlugin):
             raise
         old_client = self._client
         self._client = new_client
+        self._probability_reply_states.clear()
         if old_client is not None:
             await old_client.close()
         self.ctx.logger.info("OpenAI TTS 配置已热更新：version=%s", version)
@@ -419,6 +437,53 @@ class OpenAITTSPlugin(MaiBotPlugin):
         }
 
     @HookHandler(
+        "maisaka.reply.before_post_process",
+        name="prepare_probability_tts_reply",
+        description="在 MaiBot 拆分回复前生成整轮一致的概率 TTS 判定",
+        mode=HookMode.BLOCKING,
+        timeout_ms=1000,
+    )
+    async def prepare_probability_tts_reply(
+        self,
+        response: str = "",
+        session_id: str = "",
+        reply_tool_args: Any = None,
+        hook_name: str = "",
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """在回复拆分前缓存一次判定，供随后所有文本分段复用。"""
+
+        del hook_name, kwargs
+        normalized_session_id = session_id.strip()
+        if not normalized_session_id:
+            return {"action": "continue"}
+
+        self._remove_expired_probability_states()
+        should_convert = False
+        if self.config.plugin.enabled and self.config.feature.probability_enabled:
+            normalized_response = response.strip()
+            has_rich_attachment = self._has_rich_reply_attachment(reply_tool_args)
+            should_convert = (
+                bool(normalized_response)
+                and not has_rich_attachment
+                and self._is_probability_text_length_allowed(normalized_response)
+                and self._sample_probability()
+            )
+
+        self._probability_reply_states[normalized_session_id] = ProbabilityReplyState(
+            should_convert=should_convert,
+            expires_at=monotonic() + self._probability_state_ttl_seconds(),
+            prepared_from_reply=True,
+        )
+        self.ctx.logger.debug(
+            "已准备概率 TTS 整轮判定：stream_id=%s convert=%s text_length=%d",
+            normalized_session_id,
+            should_convert,
+            len(response.strip()),
+        )
+        return {"action": "continue"}
+
+    @HookHandler(
         "send_service.after_build_message",
         name="probability_tts",
         description="按配置概率把纯文本出站消息原位转换为语音消息",
@@ -429,22 +494,45 @@ class OpenAITTSPlugin(MaiBotPlugin):
         self,
         message: Any = None,
         stream_id: str = "",
+        typing: bool = False,
         hook_name: str = "",
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """在消息进入 adapter 前，按概率将单段纯文本替换为语音。"""
+        """在消息进入 adapter 前，按整轮一致的判定替换纯文本。"""
 
         del hook_name
+        if not self.config.plugin.enabled or not self.config.feature.probability_enabled:
+            return {"action": "continue"}
+
+        normalized_stream_id = stream_id.strip()
+        if not normalized_stream_id and isinstance(message, dict):
+            message_session_id = message.get("session_id")
+            if isinstance(message_session_id, str):
+                normalized_stream_id = message_session_id.strip()
+        if not normalized_stream_id:
+            return {"action": "continue"}
+
         text = self._extract_probability_text(message)
-        if text is None or not self._should_convert_probability_message(message, text):
+        if text is None or not self._is_probability_chat_scope_allowed(message):
+            self._disable_probability_state_for_segment(normalized_stream_id, typing)
+            return {"action": "continue"}
+
+        state = self._get_probability_state(normalized_stream_id)
+        prepared_from_reply = state is not None and state.prepared_from_reply and not state.started
+        if not prepared_from_reply and not self._is_probability_text_length_allowed(text):
+            self._disable_probability_state_for_segment(normalized_stream_id, typing)
+            return {"action": "continue"}
+
+        if not self._resolve_probability_decision(normalized_stream_id, typing):
             return {"action": "continue"}
 
         try:
             synthesized = await self._synthesize_audio(text=text)
         except TTSClientError as exc:
+            self._set_probability_state_to_text(normalized_stream_id)
             self.ctx.logger.warning(
                 "概率 TTS 合成失败，保留原文字消息：stream_id=%s error=%s",
-                stream_id,
+                normalized_stream_id,
                 self._safe_error_message(exc),
             )
             return {"action": "continue"}
@@ -456,7 +544,8 @@ class OpenAITTSPlugin(MaiBotPlugin):
         }
         modified_message = dict(message)
         if self.config.feature.probability_keep_text:
-            modified_message["raw_message"] = [dict(message["raw_message"][0]), voice_segment]
+            modified_message["raw_message"] = [dict(segment) for segment in message["raw_message"]]
+            modified_message["raw_message"].append(voice_segment)
         else:
             modified_message["raw_message"] = [voice_segment]
         modified_message["processed_plain_text"] = text
@@ -468,12 +557,13 @@ class OpenAITTSPlugin(MaiBotPlugin):
         modified_kwargs.update(
             {
                 "message": modified_message,
-                "stream_id": stream_id,
+                "stream_id": normalized_stream_id,
+                "typing": typing,
             }
         )
         self.ctx.logger.info(
             "概率 TTS 已替换出站文字消息：stream_id=%s text_length=%d audio_bytes=%d",
-            stream_id,
+            normalized_stream_id,
             len(text),
             len(synthesized.data),
         )
@@ -568,43 +658,45 @@ class OpenAITTSPlugin(MaiBotPlugin):
 
     @staticmethod
     def _extract_probability_text(message: Any) -> Optional[str]:
-        """只接受可安全原位替换的单段纯文本消息。"""
+        """合并一条出站消息中的全部纯文本段。"""
 
         if not isinstance(message, dict):
             return None
         raw_message = message.get("raw_message")
-        if not isinstance(raw_message, list) or len(raw_message) != 1:
+        if not isinstance(raw_message, list) or not raw_message:
             return None
-        segment = raw_message[0]
-        if not isinstance(segment, dict) or segment.get("type") != "text":
-            return None
-        text = segment.get("data")
-        if not isinstance(text, str):
-            return None
-        normalized_text = text.strip()
+        text_segments: List[str] = []
+        for segment in raw_message:
+            if not isinstance(segment, dict) or segment.get("type") != "text":
+                return None
+            text = segment.get("data")
+            if not isinstance(text, str):
+                return None
+            text_segments.append(text)
+        normalized_text = "".join(text_segments).strip()
         return normalized_text or None
 
-    def _should_convert_probability_message(self, message: Any, text: str) -> bool:
-        """根据功能开关、聊天范围、文本边界和概率决定是否转换。"""
-
-        if not self.config.plugin.enabled or not self.config.feature.probability_enabled:
-            return False
+    def _is_probability_text_length_allowed(self, text: str) -> bool:
+        """检查整轮回复或独立出站文本是否处于概率模式长度范围。"""
 
         minimum_length = self.config.feature.probability_min_text_length
         maximum_length = min(
             self.config.feature.probability_max_text_length,
             self.config.voice.max_text_length,
         )
-        if not minimum_length <= len(text) <= maximum_length:
-            return False
+        return minimum_length <= len(text) <= maximum_length
+
+    def _is_probability_chat_scope_allowed(self, message: Any) -> bool:
+        """检查当前出站消息所属的群聊或私聊范围是否已启用。"""
 
         message_info = message.get("message_info") if isinstance(message, dict) else None
         group_info = message_info.get("group_info") if isinstance(message_info, dict) else None
         if group_info is None:
-            if not self.config.feature.probability_private_enabled:
-                return False
-        elif not self.config.feature.probability_group_enabled:
-            return False
+            return self.config.feature.probability_private_enabled
+        return self.config.feature.probability_group_enabled
+
+    def _sample_probability(self) -> bool:
+        """按配置概率生成一次布尔判定。"""
 
         probability = self.config.feature.probability
         if probability <= 0.0:
@@ -612,6 +704,80 @@ class OpenAITTSPlugin(MaiBotPlugin):
         if probability >= 1.0:
             return True
         return random() < probability
+
+    @staticmethod
+    def _has_rich_reply_attachment(reply_tool_args: Any) -> bool:
+        """判断本轮回复是否请求了图片、表情或 At 等非纯文本附件。"""
+
+        if not isinstance(reply_tool_args, dict):
+            return False
+        return any(reply_tool_args.get(key) for key in ("attach_pic", "attach_emoji", "attach_at"))
+
+    def _remove_expired_probability_states(self) -> None:
+        """清理已经超过分段发送窗口的概率判定。"""
+
+        current_time = monotonic()
+        expired_stream_ids = [
+            stream_id for stream_id, state in self._probability_reply_states.items() if state.expires_at <= current_time
+        ]
+        for stream_id in expired_stream_ids:
+            del self._probability_reply_states[stream_id]
+
+    def _probability_state_ttl_seconds(self) -> float:
+        """让分段判定至少覆盖一次完整 TTS 请求及额外调度时间。"""
+
+        return max(
+            PROBABILITY_REPLY_STATE_MIN_TTL_SECONDS,
+            self.config.api.timeout_seconds + PROBABILITY_REPLY_STATE_TIMEOUT_BUFFER_SECONDS,
+        )
+
+    def _get_probability_state(self, stream_id: str) -> Optional[ProbabilityReplyState]:
+        """取得当前聊天流仍有效的整轮概率判定。"""
+
+        self._remove_expired_probability_states()
+        return self._probability_reply_states.get(stream_id)
+
+    def _resolve_probability_decision(self, stream_id: str, typing: bool) -> bool:
+        """为当前分段取得或创建整轮一致的概率判定。"""
+
+        state = self._get_probability_state(stream_id)
+        if state is not None and state.prepared_from_reply and not state.started:
+            state.started = True
+            return state.should_convert
+        if typing and state is not None and state.started:
+            return state.should_convert
+
+        state = ProbabilityReplyState(
+            should_convert=self._sample_probability(),
+            expires_at=monotonic() + self._probability_state_ttl_seconds(),
+            prepared_from_reply=False,
+            started=True,
+        )
+        self._probability_reply_states[stream_id] = state
+        return state.should_convert
+
+    def _disable_probability_state_for_segment(self, stream_id: str, typing: bool) -> None:
+        """遇到不支持的分段时让本轮后续分段继续使用文字。"""
+
+        state = self._get_probability_state(stream_id)
+        if state is None and not typing:
+            return
+        self._probability_reply_states[stream_id] = ProbabilityReplyState(
+            should_convert=False,
+            expires_at=monotonic() + self._probability_state_ttl_seconds(),
+            prepared_from_reply=False,
+            started=True,
+        )
+
+    def _set_probability_state_to_text(self, stream_id: str) -> None:
+        """合成失败后阻止本轮剩余分段继续尝试语音。"""
+
+        self._probability_reply_states[stream_id] = ProbabilityReplyState(
+            should_convert=False,
+            expires_at=monotonic() + self._probability_state_ttl_seconds(),
+            prepared_from_reply=False,
+            started=True,
+        )
 
     def _safe_error_message(self, error: TTSClientError) -> str:
         """生成可记录、可展示且不包含本插件凭据的错误信息。"""

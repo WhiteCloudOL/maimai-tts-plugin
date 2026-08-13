@@ -1,6 +1,6 @@
 [project]
 name = "maimai-openai-tts-plugin"
-version = "1.1.0"
+version = "1.2.0"
 description = "MaiBot 的 OpenAI 兼容文本转语音插件"
 readme = "README.md"
 requires-python = ">=3.10"
