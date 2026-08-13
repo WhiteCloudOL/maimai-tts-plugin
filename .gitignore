@@ -1,0 +1,11 @@
+/config.toml
+/.venv/
+/.pytest_cache/
+/.ruff_cache/
+/__pycache__/
+**/__pycache__/
+*.py[cod]
+*.log
+.env
+.DS_Store
+Thumbs.db
