@@ -47,7 +47,7 @@ class PluginSectionConfig(PluginConfigBase):
         json_schema_extra={"label": "启用插件", "order": 0},
     )
     config_version: str = Field(
-        default="1.2.0",
+        default="1.2.1",
         description="配置版本",
         json_schema_extra={"label": "配置版本", "order": 1, "readonly": True},
     )
@@ -367,21 +367,15 @@ class OpenAITTSPlugin(MaiBotPlugin):
         detailed_description=(
             "需要把完整回复文本转换为语音时调用；text 应传入原本要回复给用户的完整正文。参数说明：\n"
             "- text：string，必填，要转换为语音的完整回复文本。\n"
-            "- stream_id：string，必填，当前聊天流 ID。\n"
             "- voice：string，可选，临时音色；是否允许由插件配置决定。\n"
-            "- speed：number，可选，0.25 到 4.0；是否允许由插件配置决定。"
+            "- speed：number，可选，0.25 到 4.0；是否允许由插件配置决定。\n"
+            "聊天流 ID 由 MaiBot 工具执行上下文自动注入，不需要也不允许模型自行填写。"
         ),
         parameters=[
             ToolParameterInfo(
                 name="text",
                 param_type=ToolParamType.STRING,
                 description="要合成为语音的文本",
-                required=True,
-            ),
-            ToolParameterInfo(
-                name="stream_id",
-                param_type=ToolParamType.STRING,
-                description="当前聊天流 ID",
                 required=True,
             ),
             ToolParameterInfo(
@@ -401,7 +395,7 @@ class OpenAITTSPlugin(MaiBotPlugin):
     async def handle_tts_tool(
         self,
         text: str,
-        stream_id: str,
+        stream_id: str = "",
         voice: Optional[str] = None,
         speed: Optional[float] = None,
         **kwargs: Any,
@@ -413,15 +407,17 @@ class OpenAITTSPlugin(MaiBotPlugin):
             return {"success": False, "error": "OpenAI TTS 插件当前未启用"}
         if not self.config.feature.tool_enabled:
             return {"success": False, "error": "OpenAI TTS 工具当前未启用"}
-        if not stream_id:
-            return {"success": False, "error": "缺少聊天流 ID"}
+        normalized_stream_id = stream_id.strip()
+        if not normalized_stream_id:
+            self.ctx.logger.error("TTS 工具执行上下文未注入真实聊天流 ID")
+            return {"success": False, "error": "工具执行上下文缺少真实聊天流 ID"}
 
         selected_voice = voice if self.config.feature.allow_voice_override else None
         selected_speed = speed if self.config.feature.allow_speed_override else None
         try:
             audio = await self._synthesize_and_send(
                 text=text,
-                stream_id=stream_id,
+                stream_id=normalized_stream_id,
                 voice=selected_voice,
                 speed=selected_speed,
                 include_text=self.config.feature.tool_keep_text,

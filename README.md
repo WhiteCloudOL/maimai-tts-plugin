@@ -37,7 +37,7 @@ git clone https://github.com/WhiteCloudOL/maimai-openai-tts-plugin
 ```toml
 [plugin]
 enabled = true
-config_version = "1.2.0"
+config_version = "1.2.1"
 
 [api]
 base_url = "https://api.openai.com/v1"
@@ -118,7 +118,7 @@ https://api.openai.com/v1/audio/speech
 /语音 今天天气真不错。
 ```
 
-启用 LLM 工具后，麦麦可以把原本要回复的完整文本作为 `text` 参数交给 `openai_tts_speak`，由工具合成并发送语音。工具需要当前真实的 `stream_id`，插件不会自行计算会话 ID。
+启用 LLM 工具后，麦麦可以把原本要回复的完整文本作为 `text` 参数交给 `openai_tts_speak`，由工具合成并发送语音。工具声明不会向模型暴露 `stream_id` 参数；MaiBot 会从工具执行上下文自动注入当前真实聊天流 ID，插件不会接受模型猜测的 `current` 等占位值，也不会自行计算会话 ID。
 
 概率模式会在 MaiBot 执行文本拆分前为整轮回复抽取一次概率，并在分段发送窗口内复用该判定。窗口至少为 60 秒，并会自动覆盖一次完整的 `api.timeout_seconds` 及额外调度时间。因此同一轮回复不会因为逐段抽取概率或单次合成较慢而出现随机的文字、语音混排。一条出站消息内部包含多个纯文本段时，插件会按原顺序拼接后合成；开启 `probability_keep_text` 时仍保留原文本段顺序。
 

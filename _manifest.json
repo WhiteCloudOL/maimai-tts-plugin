@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
-  "id": "maimai-openai_tts_plugin",
-  "version": "1.2.0",
+  "id": "maimai-openai-tts-plugin",
+  "version": "1.2.1",
   "name": "麦麦 OpenAI TTS",
   "description": "让麦麦通过 OpenAI 兼容的 audio/speech 端点合成并发送语音消息",
   "author": {
