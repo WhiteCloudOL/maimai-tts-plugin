@@ -1,7 +1,7 @@
 [project]
-name = "maimai-openai-tts-plugin"
-version = "1.2.1"
-description = "MaiBot 的 OpenAI 兼容文本转语音插件"
+name = "maimai-tts-plugin"
+version = "2.0.0"
+description = "MaiBot 多平台 TTS 语音工作台"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0" }
@@ -11,6 +11,8 @@ authors = [
 dependencies = [
     "aiohttp>=3.9.0,<4.0.0",
     "pydantic>=2.0.0,<3.0.0",
+    "av>=14.0.0,<17.0.0",
+    "silk-python>=0.2.8,<0.3.0",
 ]
 
 [tool.ruff]
@@ -19,3 +21,16 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
+
+[dependency-groups]
+dev = [
+    "maibot-plugin-sdk==2.13.0",
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
+    "ruff>=0.9,<1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

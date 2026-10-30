@@ -1,0 +1,162 @@
+{
+  "schema_version": 2,
+  "required_capabilities": [
+    "custom_pages"
+  ],
+  "pages": [
+    {
+      "id": "studio",
+      "title": "麦麦TTS语音",
+      "description": "服务商、音色与语音路由",
+      "placement": "sidebar",
+      "icon": "settings",
+      "mode": "custom",
+      "entry": "webui/index.html",
+      "layout": "viewport",
+      "queries": {
+        "state": {
+          "api": "studio_state"
+        },
+        "reference_files": {
+          "api": "studio_reference_files"
+        },
+        "job": {
+          "api": "studio_job",
+          "parameters": {
+            "job_id": {
+              "type": "string",
+              "required": true,
+              "max_length": 64
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 104857600
+            }
+          }
+        },
+        "resolve": {
+          "api": "studio_resolve",
+          "parameters": {
+            "url": {
+              "type": "string",
+              "required": true,
+              "max_length": 2000
+            },
+            "kind": {
+              "type": "string",
+              "required": true,
+              "max_length": 30
+            }
+          }
+        }
+      },
+      "actions": {
+        "import_reference": {
+          "api": "studio_import_reference",
+          "parameters": {
+            "path": {
+              "type": "string",
+              "required": true,
+              "max_length": 2000
+            },
+            "kind": {
+              "type": "string",
+              "max_length": 30
+            }
+          }
+        },
+        "save": {
+          "api": "studio_save",
+          "parameters": {
+            "payload": {
+              "type": "string",
+              "required": true,
+              "max_length": 65536
+            },
+            "revision": {
+              "type": "integer",
+              "required": true,
+              "minimum": 0
+            }
+          }
+        },
+        "launch": {
+          "api": "studio_launch",
+          "parameters": {
+            "operation": {
+              "type": "string",
+              "required": true,
+              "choices": [
+                "preview",
+                "models",
+                "voices",
+                "clone",
+                "clone_status",
+                "design",
+                "update_voice",
+                "delete_voice"
+              ]
+            },
+            "profile_id": {
+              "type": "string",
+              "max_length": 64
+            },
+            "model_id": {
+              "type": "string",
+              "max_length": 200
+            },
+            "voice_id": {
+              "type": "string",
+              "max_length": 500
+            },
+            "refresh": {
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string",
+              "max_length": 4000
+            },
+            "name": {
+              "type": "string",
+              "max_length": 80
+            },
+            "url": {
+              "type": "string",
+              "max_length": 2000
+            },
+            "draft": {
+              "type": "string",
+              "max_length": 65536
+            }
+          }
+        },
+        "cancel": {
+          "api": "studio_cancel",
+          "parameters": {
+            "job_id": {
+              "type": "string",
+              "required": true,
+              "max_length": 64
+            }
+          }
+        },
+        "save_profile": {
+          "api": "studio_save_profile",
+          "parameters": {
+            "payload": {
+              "type": "string",
+              "required": true,
+              "max_length": 65536
+            },
+            "revision": {
+              "type": "integer",
+              "required": true,
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}
