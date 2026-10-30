@@ -54,7 +54,7 @@
 
 使用环境：**MaiBot 1.3.6–1.3.99 · 插件 SDK 2.13.0–2.20.0**。
 
-插件 ID、安装目录与数据目录统一使用 **`maimai-tts-plugin`**。
+插件 ID 为 **`WhiteCloudOL.maimai-tts-plugin`**，分类为 **媒体（media）**。仓库与安装目录使用 `maimai-tts-plugin`，数据目录使用 `data/plugins/WhiteCloudOL.maimai-tts-plugin/`。
 
 ### 2 · 添加服务商
 
@@ -152,7 +152,7 @@ reference_audio/sample.wav
 这对应 MaiBot 安装目录下的：
 
 ```text
-data/plugins/maimai-tts-plugin/reference_audio/sample.wav
+data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
 ```
 
 也可填写绝对路径，或通过路径旁的目录选择按钮选取录音。「本地文件」指 **运行 MaiBot 的机器上的文件**；插件读取后随请求发送给 Breeze，适用于同机服务和远程服务。音频来源也支持公开音频链接。
@@ -441,7 +441,7 @@ MiniMax 的声音效果可在 MP3 / WAV / FLAC 下调整音高、强度、音色
 录音目录位于：
 
 ```text
-MaiBot/data/plugins/maimai-tts-plugin/reference_audio/
+MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/
 ```
 
 将 MP3/WAV 录音放在运行麦麦的设备上，选择「麦麦本地文件」。在音色窗口的 **参考音频文件** 中填写路径，或点击旁边的 **选择文件** 从录音目录中选取；选中后路径直接填入同一输入框。
@@ -469,8 +469,8 @@ MaiBot/data/plugins/maimai-tts-plugin/reference_audio/
 以 MaiBot 安装在 `C:\Apps\MaiBot`、原录音位于 `C:\Audio\sample.wav` 为例，在 PowerShell 中复制到录音目录：
 
 ```powershell
-New-Item -ItemType Directory -Force -Path C:\Apps\MaiBot\data\plugins\maimai-tts-plugin\reference_audio
-Copy-Item -LiteralPath C:\Audio\sample.wav -Destination C:\Apps\MaiBot\data\plugins\maimai-tts-plugin\reference_audio\sample.wav
+New-Item -ItemType Directory -Force -Path C:\Apps\MaiBot\data\plugins\WhiteCloudOL.maimai-tts-plugin\reference_audio
+Copy-Item -LiteralPath C:\Audio\sample.wav -Destination C:\Apps\MaiBot\data\plugins\WhiteCloudOL.maimai-tts-plugin\reference_audio\sample.wav
 ```
 
 然后在工作台点击 **选择文件** 选取 `sample.wav`，或直接填写 `reference_audio/sample.wav`。
@@ -482,8 +482,8 @@ Copy-Item -LiteralPath C:\Audio\sample.wav -Destination C:\Apps\MaiBot\data\plug
 以 MaiBot 安装在 `/opt/MaiBot`、录音位于 `/srv/audio/sample.wav` 为例：
 
 ```bash
-mkdir -p /opt/MaiBot/data/plugins/maimai-tts-plugin/reference_audio
-cp /srv/audio/sample.wav /opt/MaiBot/data/plugins/maimai-tts-plugin/reference_audio/sample.wav
+mkdir -p /opt/MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio
+cp /srv/audio/sample.wav /opt/MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
 ```
 
 在工作台填写 `reference_audio/sample.wav`，或点击 **选择文件** 选取。也可通过 **从服务器路径导入** 填写 `/srv/audio/sample.wav`。运行 MaiBot 的账户需要录音文件的读取权限、父目录的访问权限，以及插件录音目录的写入权限。
@@ -491,7 +491,7 @@ cp /srv/audio/sample.wav /opt/MaiBot/data/plugins/maimai-tts-plugin/reference_au
 从另一台电脑上传时，可在录音所在电脑执行以下示例，将账号、主机名和目录替换为实际值：
 
 ```bash
-scp ./sample.wav bot@example.com:/opt/MaiBot/data/plugins/maimai-tts-plugin/reference_audio/sample.wav
+scp ./sample.wav bot@example.com:/opt/MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
 ```
 
 ### Docker 部署
@@ -509,17 +509,17 @@ volumes:
 
 | 位置 | 示例路径 |
 | :--- | :--- |
-| 宿主机，基于 Compose 所在目录 | `./data/MaiMBot-plugin-data/maimai-tts-plugin/reference_audio/sample.wav` |
-| MaiBot 容器内 | `/MaiMBot/data/plugins/maimai-tts-plugin/reference_audio/sample.wav` |
+| 宿主机，基于 Compose 所在目录 | `./data/MaiMBot-plugin-data/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav` |
+| MaiBot 容器内 | `/MaiMBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav` |
 | 工作台相对路径 | `reference_audio/sample.wav` |
 
-将录音放入上表的宿主机目录后，工作台即可按相对路径读取。若采用整个 `data` 目录的挂载，例如 `./data:/MaiMBot/data`，宿主机录音位置对应为 `./data/plugins/maimai-tts-plugin/reference_audio/sample.wav`。数据挂载可让录音随容器重建持续保留。
+将录音放入上表的宿主机目录后，工作台即可按相对路径读取。若采用整个 `data` 目录的挂载，例如 `./data:/MaiMBot/data`，宿主机录音位置对应为 `./data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav`。数据挂载可让录音随容器重建持续保留。
 
 也可从宿主机通过 `docker cp` 导入录音。在录音所在目录执行：
 
 ```bash
-docker exec maim-bot-core mkdir -p /MaiMBot/data/plugins/maimai-tts-plugin/reference_audio
-docker cp ./sample.wav maim-bot-core:/MaiMBot/data/plugins/maimai-tts-plugin/reference_audio/sample.wav
+docker exec maim-bot-core mkdir -p /MaiMBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio
+docker cp ./sample.wav maim-bot-core:/MaiMBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
 ```
 
 Windows 宿主机可将命令中的源文件写成 `C:\Audio\sample.wav`。工作台始终填写容器内路径或 `reference_audio/sample.wav`。通过 **从服务器路径导入** 导入其他位置的文件时，源文件也应位于容器可访问的目录，例如挂载到 `/reference_source` 后填写 `/reference_source/sample.wav`。
@@ -649,12 +649,14 @@ API Key 保存在服务端。已有密钥会显示保存状态；输入框留空
 ## 数据与备份
 
 ```text
-MaiBot/data/plugins/maimai-tts-plugin/
+MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/
 ├── studio.json       平台、模型、音色、路由与回复设置
 └── reference_audio/  参考录音
 ```
 
 实际路径以工作台显示的目录为准。备份时可保存整个数据目录，`studio.json` 按含密钥的私密配置妥善保管。
+
+从原 `data/plugins/maimai-tts-plugin/` 目录升级时，先备份并停止 MaiBot，将其中的配置与参考录音复制到 `data/plugins/WhiteCloudOL.maimai-tts-plugin/`，再启动 MaiBot。工作台随后读取新插件 ID 对应的数据目录。
 
 ## 常见情况
 

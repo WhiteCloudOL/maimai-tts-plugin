@@ -367,7 +367,9 @@ async def test_tool_input_and_model_status_send_errors_are_observed(plugin_modul
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
     rpc = AsyncMock(side_effect=RuntimeError("private-rpc-payload"))
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         await plugin.store.save({"profiles": [platform("compatible", server)]}, 0)

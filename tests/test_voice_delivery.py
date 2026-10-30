@@ -55,7 +55,9 @@ async def test_command_tool_and_probability_share_native_voice(plugin_module, tm
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
     rpc = AsyncMock(return_value={"success": True, "sent": True, "message_id": "receipt"})
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         await plugin.store.save(
@@ -95,7 +97,9 @@ async def test_negative_receipt_never_claims_success(plugin_module, tmp_path, wa
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
     rpc = AsyncMock(return_value={"success": False, "sent": False, "message_id": None})
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         plugin.service.synthesize = AsyncMock(return_value=Audio(wav_audio, "audio/wav", "wav"))

@@ -189,7 +189,7 @@ def test_unsupported_tone_combination_is_rejected_when_saving(kind, model, voice
 async def test_only_dynamic_mode_adds_prompt_and_keeps_visible_text_clean(plugin_module, tmp_path, wav_audio):
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
-    plugin._set_context(PluginContext("maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(PluginContext("WhiteCloudOL.maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
     await plugin.on_load()
     try:
         profile = dict(

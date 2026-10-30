@@ -139,7 +139,7 @@ async def test_lifecycle_component_collection_and_real_stream_send(plugin_module
     plugin.set_plugin_config(plugin.get_default_config())
     rpc = AsyncMock(return_value={"success": True})
     ctx = PluginContext(
-        "maimai-tts-plugin",
+        "WhiteCloudOL.maimai-tts-plugin",
         rpc_call=rpc,
         paths=PluginPaths(data_dir=tmp_path / "data", runtime_dir=tmp_path / "runtime"),
     )
@@ -177,7 +177,7 @@ async def test_lifecycle_component_collection_and_real_stream_send(plugin_module
 async def test_probability_segments_share_one_decision_and_failure_keeps_text(plugin_module, tmp_path, wav_audio):
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
-    plugin._set_context(PluginContext("maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(PluginContext("WhiteCloudOL.maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
     await plugin.on_load()
     try:
         data = config_payload()

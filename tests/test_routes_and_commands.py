@@ -105,7 +105,9 @@ async def test_model_command_lists_and_switches_with_plain_text_reply(plugin_mod
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
     rpc = AsyncMock(return_value={"success": True})
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         data = payload()

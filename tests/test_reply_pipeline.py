@@ -57,7 +57,7 @@ async def test_planner_reply_voice_pipeline(plugin_module, tmp_path, server, wav
         )
 
     async def rpc(method, plugin_id, payload, **kwargs):
-        assert method == "cap.call" and plugin_id == "maimai-tts-plugin"
+        assert method == "cap.call" and plugin_id == "WhiteCloudOL.maimai-tts-plugin"
         assert payload["capability"] == "send.hybrid"
         sent.append(payload["args"])
         return {"success": True, "sent": True, "message_id": "simulated-receipt"}
@@ -65,7 +65,9 @@ async def test_planner_reply_voice_pipeline(plugin_module, tmp_path, server, wav
     server.handler = provider
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         await plugin.store.save(
@@ -180,7 +182,7 @@ async def test_planner_reply_voice_pipeline(plugin_module, tmp_path, server, wav
 async def test_invalid_llm_tone_never_reaches_provider_or_sender(plugin_module, tmp_path, generated):
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
-    plugin._set_context(PluginContext("maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(PluginContext("WhiteCloudOL.maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
     await plugin.on_load()
     try:
         await plugin.store.save(

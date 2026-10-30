@@ -61,7 +61,9 @@ async def test_route_http_transcode_and_send_share_trace_and_report_failures(
     config["runtime"]["log_level"] = "DEBUG"
     plugin.set_plugin_config(config)
     rpc = AsyncMock(return_value={"success": True, "sent": True})
-    plugin._set_context(PluginContext("maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
     await plugin.on_load()
     try:
         await plugin.store.save(
@@ -118,7 +120,7 @@ async def test_background_failure_hides_draft_key_and_text(plugin_module, tmp_pa
     caplog.set_level(logging.DEBUG)
     plugin = plugin_module.create_plugin()
     plugin.set_plugin_config(plugin.get_default_config())
-    plugin._set_context(PluginContext("maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
+    plugin._set_context(PluginContext("WhiteCloudOL.maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
     await plugin.on_load()
     try:
 
