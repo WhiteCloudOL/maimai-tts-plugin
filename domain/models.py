@@ -523,7 +523,7 @@ class Features(Model):
     probability_private_enabled: bool = True
     probability_keep_text: bool = False
     tool_keep_text: bool = False
-    allow_voice_override: bool = True
+    allow_voice_override: bool = False
     allow_speed_override: bool = True
     tone_prompt_language: Literal["zh", "en", "ja"] = "zh"
 

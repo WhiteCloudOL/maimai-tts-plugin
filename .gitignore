@@ -46,7 +46,10 @@ __pycache__/
 /coverage.xml
 /junit*.xml
 
-# 构建产物；保留 uv.lock 与前端源文件
+# 本地开发文件与构建产物
+/pyproject.toml
+/uv.lock
+/tests/
 /build/
 /dist/
 *.egg-info/
