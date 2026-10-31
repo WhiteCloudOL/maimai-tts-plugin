@@ -4599,7 +4599,7 @@
             ["source", "保留服务商原始格式"],
           ],
           "官方机器人、SnowLuma 与 NapCat 推荐 SILK；发送前自动转码，网页试听保留原始音频。",
-        )}</div>${toggleField("feature.command_enabled", "启用 /tts 与 /语音 命令", f.command_enabled, "通过聊天命令把一段文字读出来。")}${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text)}${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}<hr class="split">${selectField(
+        )}</div>${toggleField("feature.command_enabled", "启用 /mmtts 语音命令", f.command_enabled, "通过 /mmtts、/tts 或 /语音 将正文合成为语音，可在命令前提及麦麦。")}${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text)}${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}<hr class="split">${selectField(
           "feature.tone_prompt_language",
           "动态语调提示语言",
           f.tone_prompt_language || "zh",

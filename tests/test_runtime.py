@@ -170,7 +170,7 @@ async def test_lifecycle_component_collection_and_real_stream_send(plugin_module
     try:
         components = collect_components(plugin)
         assert {component["name"] for component in components} >= {
-            "openai_tts",
+            "mmtts",
             "mmtts_speak",
             "studio_state",
             "studio_save",

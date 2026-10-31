@@ -20,6 +20,8 @@ from ..services.routing import RoutingService
 
 PROBABILITY_REPLY_STATE_MIN_TTL_SECONDS = 60.0
 PROBABILITY_REPLY_STATE_TIMEOUT_BUFFER_SECONDS = 30.0
+# Host 将提及渲染为 @昵称；保留开头边界，只允许提及和空白出现在命令前。
+COMMAND_PREFIX_PATTERN = r"^\s*(?:@[^\s@/]+\s*)*"
 
 
 @dataclass
@@ -40,7 +42,7 @@ class MessagingMixin:
     @Command(
         "mmtts_model",
         description="列出模型或切换整体首选 TTS 路由",
-        pattern=r"^/mmtts\s+model(?:\s+(?P<target>.+?))?\s*$",
+        pattern=COMMAND_PREFIX_PATTERN + r"/mmtts\s+model(?:\s+(?P<target>.+?))?\s*$",
         permission="operator",
     )
     async def handle_model_command(self, stream_id: str = "", **kwargs: Any) -> Tuple[bool, str, bool]:
@@ -91,21 +93,21 @@ class MessagingMixin:
         return success, message, True
 
     @Command(
-        "openai_tts",
+        "mmtts",
         description="把文本合成为语音消息",
-        pattern=r"^/(?:tts|语音)(?:\s+(?P<text>[\s\S]+))?\s*$",
-        aliases=["tts", "语音"],
+        pattern=COMMAND_PREFIX_PATTERN + r"/(?:mmtts(?!\s+model(?:\s|$))|tts|语音)(?:\s+(?P<text>[\s\S]+))?\s*$",
+        timeout_ms=600000,
     )
     async def handle_tts_command(self, stream_id: str = "", **kwargs: Any) -> Tuple[bool, str, bool]:
-        """处理 ``/tts <文本>`` 与 ``/语音 <文本>`` 命令。"""
+        """处理 ``/mmtts <文本>``、``/tts <文本>`` 与 ``/语音 <文本>``。"""
 
         self.service.log.info("收到语音命令", stream_id=stream_id)
         if not self.config.plugin.enabled:
             self.service.log.debug("跳过语音命令", reason="plugin_disabled", stream_id=stream_id)
-            return False, "麦麦TTS语音 插件当前未启用", True
+            return await self._tts_command_failure(stream_id, "请先启用麦麦TTS语音插件")
         if not self.features.command_enabled:
             self.service.log.debug("跳过语音命令", reason="command_disabled", stream_id=stream_id)
-            return False, "TTS 命令当前未启用", True
+            return await self._tts_command_failure(stream_id, "请在语音工作台的“回复行为”中启用聊天命令")
         if not stream_id:
             self.service.log.error("语音命令缺少聊天流")
             return False, "命令上下文缺少聊天流 ID", True
@@ -118,15 +120,32 @@ class MessagingMixin:
                 text = matched_text.strip()
         if not text:
             self.service.log.warning("语音命令缺少文本", stream_id=stream_id)
-            return False, "用法：/tts <要合成的文本>", True
+            return await self._tts_command_failure(stream_id, "用法：/mmtts <要合成的文本>，也支持 /tts 和 /语音")
 
         try:
             await self._synthesize_and_send(text=text, stream_id=stream_id)
         except TTSError as exc:
             error_message = self._safe_error_message(exc)
             self.service.log.warning("语音命令失败", stream_id=stream_id, error=error_message)
-            return False, error_message, True
+            return await self._tts_command_failure(stream_id, "语音发送失败：" + error_message)
         return True, "语音已发送", True
+
+    async def _tts_command_failure(self, stream_id: str, message: str) -> Tuple[bool, str, bool]:
+        """命令三元组只供 Host 记录；聊天提示通过发送能力显式送达。"""
+        if stream_id:
+            guard = (stream_id, message)
+            self._control_reply_guards.add(guard)
+            try:
+                try:
+                    sent = await self.ctx.send.text(message, stream_id)
+                except Exception as exc:
+                    self.service.log.unexpected("语音命令提示发送异常", exc, stream_id=stream_id)
+                else:
+                    if not sent:
+                        self.service.log.error("语音命令提示发送失败", stream_id=stream_id)
+            finally:
+                self._control_reply_guards.discard(guard)
+        return False, message, True
 
     @Tool(
         "mmtts_speak",

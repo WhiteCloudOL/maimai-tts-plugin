@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from tts_under_test.domain.models import TTSError
+from tts_under_test.domain.models import Audio, TTSError
 from tts_under_test.infrastructure.storage import ConfigStore
 from tts_under_test.services.routing import RoutingService
 from tts_under_test.services.tts import TTSService
@@ -227,3 +227,97 @@ async def test_provider_names_are_continuous_and_manual_dots_remain_allowed(tmp_
     edited["name"] = "阿里云·千问"
     await store.save_profile(edited, store.config.revision)
     assert store.profile("vendor").name == "阿里云·千问"
+
+
+@pytest.mark.parametrize("command", ["/mmtts", "/tts", "/语音"])
+@pytest.mark.parametrize("prefix", ["", "  ", "@麦麦 ", "@麦麦", "@麦麦\u00a0"])
+def test_speech_command_accepts_leading_mentions(plugin_module, command, prefix):
+    components = collect_components(plugin_module.create_plugin())
+    declared = next(c for c in components if c["name"] == "mmtts")
+    assert declared["metadata"]["timeout_ms"] == 600000
+    assert declared["metadata"]["aliases"] == []
+    match = re.search(declared["metadata"]["command_pattern"], prefix + command + " 你好\n第二行")
+    assert match is not None
+    assert match.group("text") == "你好\n第二行"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["你试试 /tts 你好", "@麦麦 你试试 /tts 你好", "/tts2 你好", "tts 你好", "/mmtts model", "/mmtts model 2"],
+)
+def test_speech_command_keeps_explicit_boundaries_and_model_namespace(plugin_module, text):
+    components = collect_components(plugin_module.create_plugin())
+    command = next(c for c in components if c["name"] == "mmtts")
+    assert re.search(command["metadata"]["command_pattern"], text) is None
+    assert all(c["name"] != "openai_tts" for c in components)
+
+
+def test_model_switch_command_accepts_leading_mention(plugin_module):
+    command = next(c for c in collect_components(plugin_module.create_plugin()) if c["name"] == "mmtts_model")
+    match = re.search(command["metadata"]["command_pattern"], "@麦麦 /mmtts model Vendor/Family/selected")
+    assert match is not None
+    assert match.group("target") == "Vendor/Family/selected"
+    assert command["metadata"]["permission"] == "operator"
+
+
+async def test_mentioned_speech_command_sends_only_captured_body(plugin_module, tmp_path, wav_audio):
+    plugin = plugin_module.create_plugin()
+    plugin.set_plugin_config(plugin.get_default_config())
+    rpc = AsyncMock(return_value={"success": True, "sent": True})
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
+    await plugin.on_load()
+    try:
+        plugin.service.synthesize = AsyncMock(return_value=Audio(wav_audio, "audio/wav", "wav"))
+        command = next(c for c in collect_components(plugin) if c["name"] == "mmtts")
+        match = re.search(command["metadata"]["command_pattern"], "@麦麦 /tts 111111")
+        result = await plugin.handle_tts_command(stream_id="real-stream", matched_groups=match.groupdict())
+        assert result == (True, "语音已发送", True)
+        assert plugin.service.synthesize.call_args.args == ("111111",)
+        sent = rpc.call_args.args[2]
+        assert sent["capability"] == "send.hybrid"
+        assert sent["args"]["processed_plain_text"] == "111111"
+        assert sent["args"]["stream_id"] == "real-stream"
+    finally:
+        await plugin.on_unload()
+
+
+@pytest.mark.parametrize("reason", ["disabled", "empty", "synthesis"])
+async def test_speech_command_failure_is_sent_to_chat_as_plain_text(plugin_module, tmp_path, reason):
+    plugin = plugin_module.create_plugin()
+    plugin.set_plugin_config(plugin.get_default_config())
+    sent = []
+
+    async def rpc(method, plugin_id, payload, **kwargs):
+        assert payload["capability"] == "send.text"
+        args = payload["args"]
+        hook = await plugin.handle_probability_tts(
+            message={"raw_message": [{"type": "text", "data": args["text"]}], "message_info": {}},
+            stream_id=args["stream_id"],
+        )
+        assert hook == {"action": "continue"}
+        sent.append(args["text"])
+        return {"success": True}
+
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
+    await plugin.on_load()
+    try:
+        await plugin.store.save(
+            {"feature": {"command_enabled": reason != "disabled", "probability_enabled": True, "probability": 1}}, 0
+        )
+        plugin.service.synthesize = AsyncMock(side_effect=TTSError("测试平台暂不可用"))
+        result = await plugin.handle_tts_command(
+            stream_id="real-stream", matched_groups={} if reason == "empty" else {"text": "你好"}
+        )
+        assert result[0] is False and result[2] is True
+        assert sent == [result[1]]
+        assert plugin._control_reply_guards == set()
+        if reason != "synthesis":
+            plugin.service.synthesize.assert_not_awaited()
+        else:
+            assert "测试平台暂不可用" in sent[0]
+    finally:
+        await plugin.on_unload()

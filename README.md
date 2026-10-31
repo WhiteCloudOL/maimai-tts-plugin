@@ -4,7 +4,7 @@
 
 # 麦麦多平台TTS语音
 
-[![Plugin 2.0.2](https://img.shields.io/badge/Plugin-2.0.2-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.2)
+[![Plugin 2.0.3](https://img.shields.io/badge/Plugin-2.0.3-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.3)
 [![MaiBot 1.3.6–1.3.99](https://img.shields.io/badge/MaiBot-1.3.6--1.3.99-007ec6?style=flat)](#快速开始)
 [![Plugin SDK 2.13.0–2.20.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.20.0-8A2BE2?style=flat)](#快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
@@ -583,11 +583,13 @@ GPT-SoVITS 与麦麦共用文件系统时，选择「麦麦本地文件」；异
 ### 用命令发送语音
 
 ```text
+/mmtts 你好呀，我是麦麦。
 /tts 你好呀，我是麦麦。
 /语音 今天也要好好休息。
+@麦麦 /mmtts 今天也要好好休息。
 ```
 
-在「回复行为」启用聊天命令后，可在群聊或私聊中使用。
+在「回复行为」启用聊天命令后，可在群聊或私聊中使用。主命令为 `/mmtts <文本>`，同时支持 `/tts` 与 `/语音`。命令前可带 `@麦麦` 和空白，插件直接合成命令后的正文并发送到当前聊天；模型管理使用 `/mmtts model`。命令缺少正文、命令开关关闭或合成发送失败时，会在聊天中显示对应提示。
 
 ### 让麦麦主动使用语音
 
