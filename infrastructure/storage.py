@@ -59,26 +59,18 @@ class ConfigStore:
         data = deepcopy(payload)
         data.pop("has_api_key", None)
         old = next((profile for profile in self._config.profiles if profile.id == data.get("id")), None)
+        model_entries = data.get("models", [])
+        if not isinstance(model_entries, list) or any(not isinstance(item, dict) for item in model_entries):
+            raise TTSError("models 必须是模型配置列表")
+        addresses = [
+            *(data.get(field, "") for field in ("endpoint", "base_url", "models_url", "voices_url", "clone_url")),
+            *(item.get("endpoint", "") for item in model_entries),
+            *(item.get("base_url", "") for item in model_entries),
+        ]
+        if any(not isinstance(address, str) for address in addresses):
+            raise TTSError("接口地址必须是字符串")
         if "api_key" not in data and old is not None:
-            addresses = ("kind", "models_url", "voices_url", "clone_url")
-            if old.api_key and any(data.get(field, "") != old.model_dump()[field] for field in addresses):
-                raise TTSError("接口地址已更改，请重新填写密钥后操作；无需先保存")
-            trusted = {old.endpoint, *(item.endpoint for item in old.models if item.endpoint)}
-            trusted.update({old.base_url, *(item.base_url for item in old.models if item.base_url)})
-            model_entries = data.get("models", [])
-            if not isinstance(model_entries, list) or any(not isinstance(item, dict) for item in model_entries):
-                raise TTSError("models 必须是模型配置列表")
-            addresses_to_check = [
-                data.get("endpoint", ""),
-                data.get("base_url", ""),
-                *(item.get("endpoint", "") for item in model_entries),
-                *(item.get("base_url", "") for item in model_entries),
-            ]
-            if any(not isinstance(address, str) for address in addresses_to_check):
-                raise TTSError("接口地址必须是字符串")
-            requested = set(addresses_to_check) - {""}
-            if old.api_key and requested - trusted:
-                raise TTSError("模型接口地址已更改，请重新填写密钥后操作；无需先保存")
+            # 密钥归属平台配置；省略字段时沿用，显式新值或空字符串分别用于替换和清空。
             data["api_key"] = old.api_key
         try:
             return Profile.model_validate(data)

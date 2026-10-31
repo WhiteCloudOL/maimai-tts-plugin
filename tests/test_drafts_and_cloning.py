@@ -82,6 +82,57 @@ async def test_save_profile_does_not_commit_other_drafts(tmp_path):
     assert store.config.feature.probability_enabled is False
 
 
+@pytest.mark.parametrize("scope", ["platform", "model"])
+@pytest.mark.parametrize("save_mode", ["draft", "profile", "all"])
+async def test_base_url_changes_use_saved_key_for_preview(tmp_path, server, wav_audio, scope, save_mode):
+    requests = []
+
+    async def handle(request):
+        assert request.path == "/v1/audio/speech"
+        assert request.headers.get("Authorization") == "Bearer saved-test-key"
+        body = await request.json()
+        assert body["model"] == "draft-model"
+        requests.append(request.path)
+        return web.Response(body=wav_audio, content_type="audio/wav")
+
+    server.handler = handle
+    store = ConfigStore(tmp_path)
+    snapshot = await store.save(
+        {"profiles": [{"id": "saved", "name": "平台", "kind": "compatible",
+                       "base_url": "https://original.test/v1", "model": "draft-model",
+                       "api_key": "saved-test-key"}]}, 0,
+    )
+    draft = snapshot["profiles"][0]
+    owner = draft if scope == "platform" else draft["models"][0]
+    owner["base_url"] = server.base + "/v1"
+    service = TTSService(store, RuntimeSection(), logging.getLogger("test"))
+    studio = Studio(store, service)
+    try:
+        if save_mode == "profile":
+            snapshot = await store.save_profile(draft, 1)
+        elif save_mode == "all":
+            snapshot = await store.save(snapshot, 1)
+        task = studio.launch("preview", "saved", text="你好", draft=json.dumps(draft) if save_mode == "draft" else "")
+        result = await wait_job(studio, task["job_id"])
+        assert result["state"] == "done"
+        assert result["total"] == len(wav_audio)
+        assert requests == ["/v1/audio/speech"]
+        assert store.profile("saved").api_key == "saved-test-key"
+        assert "saved-test-key" not in json.dumps(store.snapshot())
+        assert "api_key" not in snapshot["profiles"][0]
+        if save_mode == "draft":
+            assert store.config.revision == 1
+            assert store.profile("saved").for_model("draft-model").base_url == "https://original.test/v1"
+        else:
+            restored = ConfigStore(tmp_path)
+            await restored.load()
+            assert restored.profile("saved").for_model("draft-model").base_url == server.base + "/v1"
+            assert restored.profile("saved").api_key == "saved-test-key"
+    finally:
+        await studio.close()
+        await service.close()
+
+
 @pytest.mark.parametrize("complete", [True, False])
 @pytest.mark.parametrize("address_mode", ["request", "base"])
 async def test_qwen_clone_then_realtime_synthesis(server, wav_audio, complete, address_mode):

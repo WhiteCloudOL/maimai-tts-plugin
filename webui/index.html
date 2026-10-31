@@ -2122,7 +2122,7 @@
       }
       function apiKeyField(p) {
         const pending = p.has_api_key && p.api_key === "";
-        return `<div class="field"><label for="f-api_key">${p.kind === "volcengine" ? "API Key / Access Token" : p.kind === "breeze" ? "API Key（选填）" : "API Key"}</label><div class="credential-input"><input id="f-api_key" class="maibot-input input mono" data-field="api_key" type="password" value="${h(p.api_key ?? "")}" maxlength="4000" autocomplete="off" aria-describedby="api-key-help" placeholder="${pending ? "保存后清空已保存密钥" : p.has_api_key ? "已保存 · 留空保留原密钥" : "填写 API Key / Access Token"}"><button type="button" class="maibot-button key small credential-clear" data-action="clear-api-key" aria-label="${pending ? "撤销清空密钥" : "清空密钥"}" ${!p.has_api_key && !p.api_key ? "disabled" : ""}>${pending ? "撤销清空" : "清空密钥"}</button></div><small id="api-key-help" role="status" aria-live="polite">${pending ? "已标记清空，保存此平台或全部设置后生效。" : "密钥保存在服务端，接口地址调整后请填写对应密钥。"}</small></div>`;
+        return `<div class="field"><label for="f-api_key">${p.kind === "volcengine" ? "API Key / Access Token" : p.kind === "breeze" ? "API Key（选填）" : "API Key"}</label><div class="credential-input"><input id="f-api_key" class="maibot-input input mono" data-field="api_key" type="password" value="${h(p.api_key ?? "")}" maxlength="4000" autocomplete="off" aria-describedby="api-key-help" placeholder="${pending ? "保存后清空已保存密钥" : p.has_api_key ? "已保存 · 留空保留原密钥" : "填写 API Key / Access Token"}"><button type="button" class="maibot-button key small credential-clear" data-action="clear-api-key" aria-label="${pending ? "撤销清空密钥" : "清空密钥"}" ${!p.has_api_key && !p.api_key ? "disabled" : ""}>${pending ? "撤销清空" : "清空密钥"}</button></div><small id="api-key-help" role="status" aria-live="polite">${pending ? "已标记清空，保存此平台或全部设置后生效。" : "密钥由服务端保存；留空沿用已保存密钥，调整接口地址后继续使用。"}</small></div>`;
       }
       function syncApiKeyControl() {
         const p = current(),
@@ -2141,7 +2141,7 @@
         button.disabled = !p.has_api_key && !p.api_key;
         $("#api-key-help").textContent = pending
           ? "已标记清空，保存此平台或全部设置后生效。"
-          : "密钥保存在服务端，接口地址调整后请填写对应密钥。";
+          : "密钥由服务端保存；留空沿用已保存密钥，调整接口地址后继续使用。";
       }
       function toggleField(key, label, value, hint = "") {
         return `<div class="toggle-row"><div><h3>${h(label)}</h3>${hint ? `<p>${h(hint)}</p>` : ""}</div><input class="switch" aria-label="${h(label)}" type="checkbox" data-field="${h(key)}" ${value ? "checked" : ""}></div>`;
@@ -3272,7 +3272,7 @@
         state.dialogKind = "voices";
         dialog(
           `音色与克隆 · ${p.name}`,
-          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步账号音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${voices.map((v) => `<div class="voice-saved-row"><button class="maibot-button voice-saved" data-workspace-voice="${v.index}" aria-current="${state.voiceEditor?.index === v.index}"><strong>${h(v.name)}</strong><small>${h(v.id)}</small></button><button class="maibot-button key small danger flat" data-remove-workspace-voice="${v.index}" aria-label="移除音色 ${h(v.name)}">×</button></div>`).join("") || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? (account && state.voiceEditor.remoteCreated ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">删除云端音色</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
+          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `${voices.length ? `<section class="saved-voice-list"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices)}</div><hr class="split"></section>` : ""}<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步账号音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices) || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? (account && state.voiceEditor.remoteCreated ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">删除云端音色</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
         );
         if (listMode) renderWorkspacePresets();
       }
@@ -3799,7 +3799,62 @@
         }
       }
       function modelLibrary(p) {
-        return `<hr class="split"><div class="section-title"><div><h3>模型与音色</h3><small>模型参数和声音资源分别管理，保存后即可使用。</small></div><button class="maibot-button key small" data-action="manage-models">添加 / 管理模型</button></div><div class="model-library">${p.models.map((m) => `<div class="model-row"><div class="model-copy"><strong>${h(m.name || m.id)}</strong>${m.name ? `<small>${h(m.id)}</small>` : ""}<small>${p.voices.filter((v) => !v.model || v.model === m.id).length} 个音色</small></div><div class="model-row-actions"><button class="maibot-button key small" data-edit-model="${h(m.id)}">模型设置</button><button class="maibot-button maibot-button-primary key small" data-open-voices="${h(m.id)}">音色与克隆</button></div></div>`).join("")}</div>`;
+        const rows = p.models.map((m) => `<div class="model-row"><div class="model-copy"><strong>${h(m.name || m.id)}</strong>${m.name ? `<small>${h(m.id)}</small>` : ""}<small>${p.voices.filter((v) => !v.model || v.model === m.id).length} 个音色</small></div><div class="model-row-actions"><button class="maibot-button key small" data-edit-model="${h(m.id)}">模型设置</button><button class="maibot-button maibot-button-primary key small" data-open-voices="${h(m.id)}">音色与克隆</button><button class="maibot-button key small danger flat" data-remove-model="${h(m.id)}" aria-label="移除模型 ${h(m.name || m.id)}">移除模型</button></div></div>`).join("");
+        return `<hr class="split"><div class="section-title"><div><h3>模型与音色</h3><small>模型参数和声音资源分别管理，保存后即可使用。</small></div><button class="maibot-button key small" data-action="manage-models">添加 / 管理模型</button></div><div class="model-library">${rows || '<p class="choice-empty">点击“添加 / 管理模型”配置声音来源。</p>'}</div>`;
+      }
+      async function removeConfiguredModel(id) {
+        const p = current(), model = p.models.find((m) => m.id === id);
+        if (!model) throw Error("模型已移出列表，请刷新后选择。");
+        if ([state.config.primary, ...state.config.fallbacks].filter(Boolean).some(
+          (target) => target.provider_id === p.id && (target.model_id || p.model) === id,
+        )) throw Error(`整体路由正在使用 ${p.name}/${id}，请在“语音路由”选择其他模型后移除。`);
+        const confirmed = await ask("移除模型", `从此平台移除 ${model.name || id} 及其音色收藏，其他模型与云端资源继续保留。`);
+        if (!confirmed) return;
+        p.models = p.models.filter((m) => m.id !== id);
+        p.voices = p.voices.filter((v) => p.models.length && v.model !== id);
+        if (p.model === id) {
+          const first = p.models[0], breezeMode = p.options.breeze_api_mode;
+          p.model = first?.id || "";
+          p.voice = first?.voice || "";
+          if (first?.parameters) Object.assign(p, structuredClone(first.parameters));
+          else { p.instructions = ""; p.tone = emptyTone(); p.speed = 1; }
+          if (p.kind === "breeze") p.options.breeze_api_mode = breezeMode;
+        }
+        if (state.voiceModels[p.id] === id) state.voiceModels[p.id] = p.model;
+        if (state.previewProfile === p.id && state.previewModel === id) state.previewModel = "";
+        dirty();
+        if (await save("profile")) notify("模型及其音色收藏已移除并保存。");
+      }
+      function savedVoiceRows(voices) {
+        return voices.map((v) => `<div class="voice-saved-row"><button class="maibot-button voice-saved" data-workspace-voice="${v.index}" aria-current="${state.voiceEditor?.index === v.index}"><strong>${h(v.name)}</strong><small>${h(v.id)}</small></button><button class="maibot-button key small danger flat" data-remove-workspace-voice="${v.index}" aria-label="移除音色 ${h(v.name)}">移除</button></div>`).join("");
+      }
+      async function removeWorkspaceVoice(index) {
+        const p = state.modelEditor.profile, voice = p.voices[index], panel = state.voiceWorkspace;
+        if (!voice) throw Error("音色已移出收藏，请刷新后选择。");
+        const affected = new Set(voice.model ? [voice.model] : p.models.map((m) => m.id));
+        if ([state.config.primary, ...state.config.fallbacks].filter(Boolean).some((target) => {
+          if (target.provider_id !== p.id || !affected.has(target.model_id || p.model)) return false;
+          const selected = p.models.find((m) => m.id === (target.model_id || p.model));
+          return (target.voice ?? selected?.voice ?? p.voice) === voice.id;
+        })) throw Error(`整体路由正在使用音色“${voice.name}”，请在“语音路由”选择其他音色后移除。`);
+        const confirmed = await ask("移除音色收藏", `从此平台的收藏中移除“${voice.name}”，并清理关联模型的音色选择。云端音色由“删除云端音色”操作管理。`);
+        if (!confirmed) { showVoiceWorkspace(); return; }
+        p.voices.splice(index, 1);
+        for (const owner of [p, current()]) {
+          for (const model of owner.models) {
+            if (affected.has(model.id) && model.voice === voice.id) model.voice = "";
+          }
+          if (affected.has(owner.model) && owner.voice === voice.id) owner.voice = "";
+        }
+        for (const id of affected) panel.selections[id]?.delete(voice.id);
+        for (const [key, draft] of Object.entries(panel.drafts)) {
+          if (draft.sourceId === voice.id && [...affected].some((id) => key.endsWith(":" + id))) delete panel.drafts[key];
+        }
+        const editor = state.voiceEditor;
+        if (editor?.sourceId === voice.id) state.voiceEditor = null;
+        else if (editor?.sourceId) editor.index = p.voices.findIndex((v) => v.id === editor.sourceId && (!v.model || v.model === p.model));
+        if (!state.voiceEditor && !["preset", "account"].includes(panel.category)) initVoiceDraft();
+        if (await persistVoiceWorkspace()) notify("音色收藏已移除并保存。");
       }
 
       function presetVoices(p) {
@@ -5316,23 +5371,9 @@
             state.objectAudio = "";
             showVoiceWorkspace();
           } else if (b.dataset.removeWorkspaceVoice !== undefined) {
-            const p = state.modelEditor.profile,
-              index = +b.dataset.removeWorkspaceVoice,
-              voice = p.voices[index];
-            if (
-              [state.config.primary, ...state.config.fallbacks]
-                .filter(Boolean)
-                .some(
-                  (v) =>
-                    v.provider_id === p.id &&
-                    v.model_id === p.model &&
-                    v.voice === voice.id,
-                )
-            )
-              throw Error("整体路由正在使用此音色，请先调整路由。");
-            p.voices.splice(index, 1);
-            initVoiceDraft();
-            await persistVoiceWorkspace();
+            await removeWorkspaceVoice(+b.dataset.removeWorkspaceVoice);
+          } else if (b.dataset.removeModel) {
+            await removeConfiguredModel(b.dataset.removeModel);
           } else if (b.dataset.editModel) openModelDialog(b.dataset.editModel);
           else if (b.dataset.tab) {
             state.tab = b.dataset.tab;
@@ -5624,7 +5665,8 @@
             : current();
         if (!target) return;
         if (key === "options.sample_rate") value = Number(value);
-        target[parts.at(-1)] = value;
+        if (key === "api_key" && value === "") delete target.api_key;
+        else target[parts.at(-1)] = value;
         if (!isFeature) invalidateConnectionField(current().id, key);
         if (key === "options.breeze_api_mode") {
           const p = current(), cat = preset(p), cloud = value === "cloud";

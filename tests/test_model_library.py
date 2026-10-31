@@ -116,7 +116,8 @@ def test_recording_voices_are_isolated_by_model():
     assert profile.options.reference_file == "reference_audio/sample.wav"
 
 
-async def test_model_endpoint_changes_require_explicit_credentials(tmp_path):
+@pytest.mark.parametrize("address_field", ["endpoint", "base_url"])
+async def test_model_address_changes_retain_saved_credentials(tmp_path, address_field):
     store = ConfigStore(tmp_path)
     profile = {
         "id": "one",
@@ -128,11 +129,13 @@ async def test_model_endpoint_changes_require_explicit_credentials(tmp_path):
     }
     saved = await store.save({"profiles": [profile]}, 0)
     draft = saved["profiles"][0]
-    draft["models"].append({"id": "second", "endpoint": "https://other.test/tts"})
-    with pytest.raises(TTSError, match="重新填写密钥"):
-        store.prepare_profile(draft)
+    draft["models"].append({"id": "second", address_field: "https://other.test/tts"})
+    selected = store.prepare_profile(draft).for_model("second")
+    assert selected.api_key == "secret"
+    assert selected.model_dump()[address_field] == "https://other.test/tts"
+    assert store.profile("one").models[-1].id == "first"
     draft["api_key"] = "new-secret"
-    assert store.prepare_profile(draft).for_model("second").endpoint == "https://other.test/tts"
+    assert store.prepare_profile(draft).for_model("second").api_key == "new-secret"
 
 
 def test_qwen_realtime_model_selection_updates_its_query():

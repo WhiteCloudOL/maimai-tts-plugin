@@ -46,10 +46,32 @@ async def test_atomic_store_secrets_revisions_and_origin_change(tmp_path):
     snapshot = await store.save(snapshot, 1)
     assert store.profile("main").api_key == "unit-test-secret"
     snapshot["profiles"][0]["models_url"] = "http://another-host/models"
-    with pytest.raises(TTSError, match="重新填写密钥"):
-        await store.save(snapshot, 2)
-    assert store.config.revision == 2
-    assert store.profile("main").models_url == ""
+    snapshot = await store.save(snapshot, 2)
+    assert store.config.revision == 3
+    assert store.profile("main").models_url == "http://another-host/models"
+    assert store.profile("main").api_key == "unit-test-secret"
+    assert "unit-test-secret" not in json.dumps(snapshot)
+
+
+@pytest.mark.parametrize("method", ["save", "save_profile"])
+@pytest.mark.parametrize("replacement", ["", "replacement-test-key"], ids=["clear", "replace"])
+async def test_explicit_credentials_update_after_base_url_change(tmp_path, method, replacement):
+    store = ConfigStore(tmp_path)
+    snapshot = await store.save(config_payload(), 0)
+    draft = snapshot["profiles"][0]
+    draft["base_url"] = "https://another-host.test/v1"
+    draft["api_key"] = replacement
+    if method == "save_profile":
+        result = await store.save_profile(draft, 1)
+    else:
+        result = await store.save(snapshot, 1)
+    assert store.profile("main").api_key == replacement
+    assert result["profiles"][0]["has_api_key"] is bool(replacement)
+    assert "api_key" not in result["profiles"][0]
+    restored = ConfigStore(tmp_path)
+    await restored.load()
+    assert restored.profile("main").api_key == replacement
+    assert restored.profile("main").base_url == draft["base_url"]
 
 
 async def test_corrupt_config_is_not_overwritten(tmp_path):
