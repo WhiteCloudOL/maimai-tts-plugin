@@ -84,20 +84,19 @@ class IntonationMixin:
         del hook_name
         if not self.config.plugin.enabled or not self.features.tool_enabled or not tool_definitions:
             return {"action": "continue"}
-        targets = [
-            item
-            for item in tool_definitions
-            if isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_speak"
-        ]
-        if not targets:
-            return {"action": "continue"}
         prompt = self.dynamic_tone_prompt(automatic=False)
-        if not prompt:
+        # 固定或关闭模式的规划请求只保留朗读工具；动态模式才暴露语调查询与标签协议。
+        definitions = [
+            deepcopy(item)
+            for item in tool_definitions
+            if prompt
+            or not (isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_tone_options")
+        ]
+        if not prompt and len(definitions) == len(tool_definitions):
             return {"action": "continue"}
-        definitions = deepcopy(tool_definitions)
         for item in definitions:
             function = item.get("function")
-            if isinstance(function, dict) and function.get("name") == "mmtts_speak":
+            if prompt and isinstance(function, dict) and function.get("name") == "mmtts_speak":
                 function["description"] = "\n\n".join(
                     value for value in (function.get("description", ""), prompt) if value
                 )

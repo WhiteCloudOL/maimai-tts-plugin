@@ -135,10 +135,10 @@ class MessagingMixin:
         detailed_description=(
             "需要把完整回复文本转换为语音时调用；text 应传入原本要回复给用户的完整正文。参数说明：\n"
             "- text：string，必填，要转换为语音的完整回复文本。\n"
-            "- voice：string，可选，临时音色；是否允许由插件配置决定。\n"
+            "- voice：string，可选，用户明确指定临时音色时填写，日常回复沿用整体路由。\n"
             "- speed：number，可选，0.25 到 4.0；是否允许由插件配置决定。\n"
-            "固定语调直接传正文。仅在工作台选用动态语调时，text 可使用单个头部标签 [mmtts:语调ID]；"
-            "先调用 mmtts_tone_options 查询当前模式和允许列表，按返回的 ID 选择语调。\n"
+            "直接传入朗读正文，语调按当前路由配置及本次工具说明执行。\n"
+            "成功结果表示语音已经发送到聊天流，本轮回复随即完成。\n"
             "聊天流 ID 由 MaiBot 工具执行上下文自动注入，不需要也不允许模型自行填写。"
         ),
         parameters=[
@@ -205,6 +205,9 @@ class MessagingMixin:
         return {
             "success": True,
             "message": "语音已发送",
+            "content": f"语音已成功发送到当前聊天流，本轮回复已完成。朗读内容：{clean_display_text(text)}",
+            "sent": True,
+            "stop_after_execution": True,
             "audio_bytes": len(audio.data),
         }
 
@@ -443,6 +446,9 @@ class MessagingMixin:
                     stream_id,
                     processed_plain_text=clean_display_text(text),
                     return_details=True,
+                    # 官方适配器无需依赖消息回流即可记录自己的语音；沿用宿主的自身回复标识。
+                    sync_to_maisaka_history=True,
+                    maisaka_source_kind="guided_reply",
                 )
             except Exception as exc:
                 self.service.log.unexpected("发送语音调用异常", exc, stream_id=stream_id)

@@ -1041,6 +1041,9 @@
       .dirty-label.changed {
         color: var(--danger);
       }
+      #routing-status {
+        white-space: normal;
+      }
       dialog {
         width: min(660px, 92vw);
         max-height: 85vh;
@@ -1866,6 +1869,7 @@
           );
       const state = {
         config: null,
+        savedConfig: null,
         catalog: {},
         voiceSets: {},
         intonation: { labels: {}, rules: [] },
@@ -2035,13 +2039,18 @@
         el.classList.toggle("changed", state.dirty);
         document.querySelectorAll("[data-save]").forEach((button) => {
           button.disabled =
-            !state.config || !state.dirty || state.saving || state.busy;
+            !state.config ||
+            !(button.dataset.save === "routing" ? routingChanged() : state.dirty) ||
+            state.saving || state.busy;
           button.textContent = state.saving
             ? "正在保存…"
             : button.dataset.save === "profile"
               ? "保存此平台"
-              : "保存全部设置 ↗";
+              : button.dataset.save === "routing"
+                ? "保存语音路由"
+                : "保存全部设置 ↗";
         });
+        updateRoutingStatus();
         $("#footer-state").textContent = state.busy
           ? "TASK RUNNING"
           : state.dirty
@@ -2057,18 +2066,36 @@
       function mark(p) {
         return `<span class="mark" style="--provider-color:${h(preset(p).color)}">${h(preset(p).mark)}</span>`;
       }
-      function routeName(target) {
-        const p = state.config.profiles.find(
+      function routeName(target, config = state.config) {
+        const p = config.profiles.find(
           (v) => v.id === target?.provider_id,
         );
         return p
           ? `${p.name}/${target.model_id || "待配置模型"}`
           : "选择服务商/模型";
       }
+      function routingValues(config) {
+        return { primary: config.primary, fallbacks: config.fallbacks };
+      }
+      function routingChanged() {
+        return state.config && state.savedConfig &&
+          JSON.stringify(routingValues(state.config)) !==
+            JSON.stringify(routingValues(state.savedConfig));
+      }
+      function updateRoutingStatus() {
+        const status = $("#routing-status");
+        if (!status) return;
+        const changed = routingChanged();
+        status.textContent = changed
+          ? "路由选择待保存 · 点击保存后用于聊天"
+          : "当前路由已保存并生效";
+        status.classList.toggle("changed", Boolean(changed));
+      }
       function renderSummary() {
         if (!state.config) return;
+        const applied = state.savedConfig || state.config;
         $("#summary").innerHTML =
-          `<div class="maibot-card meter"><div class="overline">ON AIR · 整体首选路由</div><strong>${h(state.config.primary ? routeName(state.config.primary) : "等待配置")}</strong><small>${h(state.config.primary?.voice || "在整体路由中选择服务商、模型与音色")}</small>${wave()}</div><div class="maibot-card meter"><div class="overline">CONNECTED</div><strong>${state.config.profiles.filter((p) => p.enabled).length} <small>/ ${state.config.profiles.length} 个服务商</small></strong><small>平台管理连接与模型资源</small></div><div class="maibot-card meter"><div class="overline">BACKUP CHAIN</div><strong>${state.config.fallbacks.length} <small>级备选</small></strong><small>逐条选择具体服务商/模型</small></div>`;
+          `<div class="maibot-card meter"><div class="overline">ON AIR · 聊天当前生效路由</div><strong>${h(applied.primary ? routeName(applied.primary, applied) : "等待配置")}</strong><small>${h(applied.primary?.voice || "沿用模型参数或参考录音")}</small>${routingChanged() ? '<small>新的路由选择待保存</small>' : ''}${wave()}</div><div class="maibot-card meter"><div class="overline">CONNECTED</div><strong>${state.config.profiles.filter((p) => p.enabled).length} <small>/ ${state.config.profiles.length} 个服务商</small></strong><small>平台管理连接与模型资源</small></div><div class="maibot-card meter"><div class="overline">BACKUP CHAIN</div><strong>${applied.fallbacks.length} <small>级备选</small></strong><small>已生效的备选顺序</small></div>`;
       }
 
       function render() {
@@ -4558,7 +4585,7 @@
       }
       function routingView() {
         const primary = state.config.primary;
-        return `<div class="route-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>整体语音路由</h2><p>按 Provider/Model 选择首选与备选，每条路由明确使用具体模型。</p></div></div><div class="panel-body"><div class="section-title"><h3>首选路由</h3><small>PRIMARY</small></div><div class="model-row"><div class="model-copy"><strong>${h(routeName(primary))}</strong></div><button class="maibot-button maibot-button-primary key small" data-route-pick="primary">选择服务商 / 模型</button></div>${routeVoiceField(primary, "primary")}<hr class="split"><div class="section-title"><h3>有序备选</h3><small>FALLBACK CHAIN</small></div>${state.config.fallbacks.map((target, index) => `<div class="maibot-card panel panel-body" style="margin-bottom:12px"><div class="flex-wrap"><span class="order">${index + 1}</span><strong style="flex:1;overflow-wrap:anywhere;font-size:13px">${h(routeName(target))}</strong><button class="maibot-button key small" data-route-pick="${index}">更换模型</button><button class="maibot-button key small" data-route-up="${index}" aria-label="上移备选 ${index + 1}" ${index === 0 ? "disabled" : ""}>↑</button><button class="maibot-button key small" data-route-down="${index}" aria-label="下移备选 ${index + 1}" ${index === state.config.fallbacks.length - 1 ? "disabled" : ""}>↓</button><button class="maibot-button key small flat danger" data-route-remove="${index}" aria-label="移除备选 ${index + 1}">×</button></div>${routeVoiceField(target, index)}</div>`).join("")}<button class="maibot-button key" data-action="add-backup">＋ 添加备选路由</button></div></section><aside class="maibot-card panel panel-body"><div class="overline">PROVIDER / MODEL</div><h2 style="margin-top:9px">统一选择声音的来源</h2><ol class="route-guide"><li>平台页管理连接、模型库与音色资源。</li><li>整体路由指定实际使用的服务商、模型与音色。</li><li>同一服务商的不同模型也可分别加入备选。</li><li>按列表顺序调用，结果以平台与适配器回执为准。</li></ol><div class="note" style="margin-top:18px">聊天切换：<br><code>/mmtts model</code> 查看编号列表<br><code>/mmtts model 2</code> 按编号切换<br><code>/mmtts model Provider/Model</code> 按名称切换</div></aside></div>`;
+        return `<div class="route-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>整体语音路由</h2><p>按 Provider/Model 选择首选与备选，每条路由明确使用具体模型。</p><p id="routing-status" class="dirty-label" role="status" aria-live="polite"></p></div><button class="maibot-button maibot-button-primary key small" data-action="save-routing" data-save="routing">保存语音路由</button></div><div class="panel-body"><div class="section-title"><h3>首选路由</h3><small>PRIMARY</small></div><div class="model-row"><div class="model-copy"><strong>${h(routeName(primary))}</strong></div><button class="maibot-button maibot-button-primary key small" data-route-pick="primary">选择服务商 / 模型</button></div>${routeVoiceField(primary, "primary")}<hr class="split"><div class="section-title"><h3>有序备选</h3><small>FALLBACK CHAIN</small></div>${state.config.fallbacks.map((target, index) => `<div class="maibot-card panel panel-body" style="margin-bottom:12px"><div class="flex-wrap"><span class="order">${index + 1}</span><strong style="flex:1;overflow-wrap:anywhere;font-size:13px">${h(routeName(target))}</strong><button class="maibot-button key small" data-route-pick="${index}">更换模型</button><button class="maibot-button key small" data-route-up="${index}" aria-label="上移备选 ${index + 1}" ${index === 0 ? "disabled" : ""}>↑</button><button class="maibot-button key small" data-route-down="${index}" aria-label="下移备选 ${index + 1}" ${index === state.config.fallbacks.length - 1 ? "disabled" : ""}>↓</button><button class="maibot-button key small flat danger" data-route-remove="${index}" aria-label="移除备选 ${index + 1}">×</button></div>${routeVoiceField(target, index)}</div>`).join("")}<button class="maibot-button key" data-action="add-backup">＋ 添加备选路由</button></div></section><aside class="maibot-card panel panel-body"><div class="overline">PROVIDER / MODEL</div><h2 style="margin-top:9px">统一选择声音的来源</h2><ol class="route-guide"><li>平台页管理连接、模型库与音色资源。</li><li>整体路由指定实际使用的服务商、模型与音色。</li><li>同一服务商的不同模型也可分别加入备选。</li><li>按列表顺序调用，结果以平台与适配器回执为准。</li></ol><div class="note" style="margin-top:18px">聊天切换：<br><code>/mmtts model</code> 查看编号列表<br><code>/mmtts model 2</code> 按编号切换<br><code>/mmtts model Provider/Model</code> 按名称切换</div></aside></div>`;
       }
 
       function featuresView() {
@@ -4656,6 +4683,7 @@
         try {
           const result = await maibot.query("state");
           state.config = result.config;
+          state.savedConfig = structuredClone(result.config);
           state.config.profiles.forEach(rememberModel);
           state.catalog = result.catalog;
           state.voiceSets = result.voice_sets;
@@ -4694,7 +4722,8 @@
         try {
           const selectedId = state.selected;
           const payload = JSON.stringify(
-            scope === "profile" ? current() : state.config,
+            scope === "profile" ? current() :
+              scope === "routing" ? routingValues(state.config) : state.config,
           );
           if (
             new TextEncoder().encode(
@@ -4705,12 +4734,14 @@
               "配置超过页面保存上限，请减少模型、音色收藏或服务商数量。",
             );
           const saved = await maibot.action(
-            scope === "profile" ? "save_profile" : "save",
+            scope === "profile" ? "save_profile" :
+              scope === "routing" ? "save_routing" : "save",
             {
               payload,
               revision: state.config.revision,
             },
           );
+          state.savedConfig = structuredClone(saved);
           if (scope === "profile") {
             const profile = saved.profiles.find(
               (item) => item.id === selectedId,
@@ -4721,6 +4752,11 @@
             state.config.revision = saved.revision;
             state.dirty =
               JSON.stringify(state.config) !== JSON.stringify(saved);
+          } else if (scope === "routing") {
+            state.config.primary = saved.primary;
+            state.config.fallbacks = saved.fallbacks;
+            state.config.revision = saved.revision;
+            state.dirty = JSON.stringify(state.config) !== JSON.stringify(saved);
           } else {
             state.config = saved;
             state.dirty = false;
@@ -4728,7 +4764,9 @@
           render();
           syncSelects();
           notify(
-            scope === "profile" ? "当前平台已保存" : "全部设置已保存，即刻生效",
+            scope === "profile" ? "当前平台已保存" :
+              scope === "routing" ? "语音路由已保存，后续聊天立即使用新选择" :
+                "全部设置已保存，即刻生效",
           );
           return true;
         } catch (e) {
@@ -4935,6 +4973,7 @@
         refresh: () => refresh(),
         save: () => save(),
         "save-profile": () => save("profile"),
+        "save-routing": () => save("routing"),
         "clear-api-key": () => {
           const p = current();
           if (p.has_api_key && p.api_key === "") delete p.api_key;
@@ -5947,6 +5986,7 @@
             fresh.config.revision !== state.config.revision
           ) {
             state.config = fresh.config;
+            state.savedConfig = structuredClone(fresh.config);
             state.catalog = fresh.catalog;
             state.voiceSets = fresh.voice_sets;
             state.intonation = fresh.intonation;

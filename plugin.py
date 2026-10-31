@@ -73,6 +73,8 @@ class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
             enabled=self.config.plugin.enabled,
             providers=len(config.profiles),
             primary=f"{primary.provider_id}/{primary.model_id}" if primary else "",
+            voice=primary.voice if primary else "",
+            revision=config.revision,
             backups=len(config.fallbacks),
             command=config.feature.command_enabled,
             tool=config.feature.tool_enabled,
@@ -142,6 +144,19 @@ class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
         result = await self.store.save_profile(data, revision)
         self._probability_reply_states.clear()
         self.service.log.info("平台设置已保存", provider_id=data.get("id"), revision=result["revision"])
+        return result
+
+    @API("studio_save_routing", description="保存整体语音路由并立即生效")
+    async def studio_save_routing(self, payload: str, revision: int) -> Dict[str, Any]:
+        try:
+            data = json.loads(payload)
+        except (ValueError, RecursionError):
+            raise TTSError("路由配置不是有效 JSON") from None
+        if not isinstance(data, dict):
+            raise TTSError("路由配置必须是对象")
+        result = await self.store.save_routing(data, revision)
+        self._probability_reply_states.clear()
+        self._log_configuration("整体语音路由已保存并生效")
         return result
 
     @API("studio_launch", description="试听、模型与账号音色管理、声音复刻和设计")

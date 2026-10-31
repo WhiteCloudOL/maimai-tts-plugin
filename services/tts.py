@@ -247,7 +247,11 @@ class TTSService:
             except ValidationError as exc:
                 raise TTSError(safe_validation_error(exc)) from None
         self.log.info(
-            "合成开始", source="explicit" if profile_id else "route", text_length=len(text), route_count=len(route)
+            "合成开始",
+            source="explicit" if profile_id else "route",
+            revision=config.revision,
+            text_length=len(text),
+            route_count=len(route),
         )
         for index, target in enumerate(route, 1):
             provider_id = target.provider_id
@@ -271,6 +275,14 @@ class TTSService:
                 if voice is not None:
                     values["voice"] = voice
                 selected = Profile.model_validate(values).with_selected_voice()
+                self.log.info(
+                    "本次语音路由",
+                    provider=selected.name,
+                    model=selected.model,
+                    voice=selected.voice,
+                    tone_mode=selected.tone.mode,
+                    revision=config.revision,
+                )
                 if speed is not None:
                     # 临时语速是本次调用的最终覆盖，优先于模型及音色保存的语速。
                     selected = Profile.model_validate({**selected.model_dump(), "speed": speed})

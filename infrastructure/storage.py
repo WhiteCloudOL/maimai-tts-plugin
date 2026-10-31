@@ -115,6 +115,21 @@ class ConfigStore:
             await self._commit(updated)
             return self.snapshot()
 
+    async def save_routing(self, payload: Dict[str, Any], revision: int) -> Dict[str, Any]:
+        """仅提交整体路由，模型资源与回复行为沿用已保存配置。"""
+        async with self._lock:
+            if revision != self._config.revision:
+                raise TTSError("配置已在其他页面更新，请刷新后重试")
+            if set(payload) != {"primary", "fallbacks"}:
+                raise TTSError("路由配置应包含 primary 与 fallbacks")
+            data = {**self._config.model_dump(), **payload, "revision": revision + 1}
+            try:
+                updated = StudioConfig.model_validate(data)
+            except ValidationError as exc:
+                raise TTSError(safe_validation_error(exc)) from None
+            await self._commit(updated)
+            return self.snapshot()
+
     async def _commit(self, config: StudioConfig) -> None:
         # 线程写入不能被取消；等待原子替换落定后再释放锁，保持内存和磁盘同一版本。
         write = asyncio.create_task(asyncio.to_thread(self._write, config))

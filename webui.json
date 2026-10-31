@@ -155,6 +155,21 @@
               "minimum": 0
             }
           }
+        },
+        "save_routing": {
+          "api": "studio_save_routing",
+          "parameters": {
+            "payload": {
+              "type": "string",
+              "required": true,
+              "max_length": 65536
+            },
+            "revision": {
+              "type": "integer",
+              "required": true,
+              "minimum": 0
+            }
+          }
         }
       }
     }

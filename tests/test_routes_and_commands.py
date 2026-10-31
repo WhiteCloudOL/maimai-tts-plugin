@@ -74,6 +74,64 @@ async def test_platform_save_does_not_assign_a_primary_route(tmp_path):
     assert store.config.fallbacks == []
 
 
+async def test_route_save_is_atomic_and_preserves_platforms_and_features(tmp_path):
+    store = ConfigStore(tmp_path)
+    data = payload()
+    data["profiles"][0]["api_key"] = "test-private-value"
+    data["feature"] = {"probability": 0.75, "tool_keep_text": True}
+    await store.save(data, 0)
+    before = store.config
+    routing = {"primary": data["fallbacks"][0], "fallbacks": [data["primary"]]}
+    snapshot = await store.save_routing(routing, 1)
+    assert store.config.profiles == before.profiles
+    assert store.config.feature == before.feature
+    assert "api_key" not in snapshot["profiles"][0]
+    assert snapshot["revision"] == 2
+    restored = ConfigStore(tmp_path)
+    await restored.load()
+    assert restored.config == store.config
+    for invalid, revision in (
+        (routing, 1),
+        ({"primary": {"provider_id": "vendor", "model_id": "missing"}, "fallbacks": []}, 2),
+        ({**routing, "profiles": []}, 2),
+    ):
+        with pytest.raises(TTSError):
+            await store.save_routing(invalid, revision)
+    assert store.snapshot() == snapshot
+
+
+async def test_saved_route_switch_takes_effect_with_warm_audio_cache(tmp_path, server, wav_audio):
+    received = []
+
+    async def handle(request):
+        body = await request.json()
+        received.append((body["model"], body["voice"]))
+        return web.Response(body=wav_audio, content_type="audio/wav")
+
+    server.handler = handle
+    store = ConfigStore(tmp_path)
+    data = payload(server.base + "/tts")
+    data["fallbacks"] = []
+    await store.save(data, 0)
+    service = TTSService(store, RuntimeSection(), logging.getLogger("test"))
+    try:
+        await service.synthesize("同一句话")
+        for model, voice in (("editor", "backup-voice"), ("editor", "new-voice")):
+            await store.save_routing(
+                {"primary": {"provider_id": "vendor", "model_id": model, "voice": voice}, "fallbacks": []},
+                store.config.revision,
+            )
+            await service.synthesize("同一句话")
+            await service.synthesize("同一句话")
+        assert received == [
+            ("Family/selected", "route-voice"),
+            ("editor", "backup-voice"),
+            ("editor", "new-voice"),
+        ]
+    finally:
+        await service.close()
+
+
 @pytest.mark.parametrize("selector", ["2", "Vendor/Family/selected", "vendor/Family/selected"])
 async def test_index_and_provider_model_switch_the_same_route(tmp_path, selector):
     store = ConfigStore(tmp_path)

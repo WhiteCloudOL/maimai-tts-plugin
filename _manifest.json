@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "WhiteCloudOL.maimai-tts-plugin",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "name": "麦麦多平台TTS语音",
   "description": "多平台文本转语音，内置插件WebUI，支持模型管理、音色管理、音频复刻等，支持OpenAI、阿里百炼、Minimax、火山引擎、BreezeTTS等多个API服务商",
   "plugin_type": "media",

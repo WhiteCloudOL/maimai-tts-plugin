@@ -74,9 +74,15 @@ async def test_command_tool_and_probability_share_native_voice(plugin_module, tm
         plugin.service.synthesize = AsyncMock(return_value=Audio(wav_audio, "audio/wav", "wav"))
         result = await plugin.handle_tts_tool("你好", stream_id="real-stream")
         assert result["success"]
+        assert result["sent"] is True
+        assert result["stop_after_execution"] is True
+        assert "朗读内容：你好" in result["content"]
         args = rpc.call_args.args[2]["args"]
         assert args["stream_id"] == "real-stream"
         assert args["return_details"] is True
+        assert args["sync_to_maisaka_history"] is True
+        assert args["maisaka_source_kind"] == "guided_reply"
+        assert args["processed_plain_text"] == "你好"
         sent_voice = args["segments"][-1]
         assert base64.b64decode(sent_voice["binary_data_base64"]).startswith(SILK_HEADER)
         assert len(args["segments"]) == (2 if keep_text else 1)
@@ -105,6 +111,31 @@ async def test_negative_receipt_never_claims_success(plugin_module, tmp_path, wa
         plugin.service.synthesize = AsyncMock(return_value=Audio(wav_audio, "audio/wav", "wav"))
         result = await plugin.handle_tts_tool("你好", stream_id="real-stream")
         assert result["success"] is False
+        assert not result.get("stop_after_execution")
         assert "发送到聊天流失败" in result["error"]
+    finally:
+        await plugin.on_unload()
+
+
+async def test_sent_voice_history_and_tool_result_use_clean_transcript(plugin_module, tmp_path, wav_audio):
+    plugin = plugin_module.create_plugin()
+    plugin.set_plugin_config(plugin.get_default_config())
+    # 官方平台即使未回传消息 ID，明确的成功发送回执仍然有效。
+    rpc = AsyncMock(return_value={"success": True, "sent": True, "message_id": None})
+    plugin._set_context(
+        PluginContext("WhiteCloudOL.maimai-tts-plugin", rpc_call=rpc, paths=PluginPaths(tmp_path, tmp_path))
+    )
+    await plugin.on_load()
+    try:
+        plugin.service.synthesize = AsyncMock(return_value=Audio(wav_audio, "audio/wav", "wav"))
+        result = await plugin.handle_tts_tool("[mmtts:happy]我已经发出语音啦。", stream_id="official-stream")
+        assert result["success"] is True
+        assert result["stop_after_execution"] is True
+        assert "我已经发出语音啦。" in result["content"]
+        assert "mmtts:" not in result["content"]
+        args = rpc.call_args.args[2]["args"]
+        assert args["processed_plain_text"] == "我已经发出语音啦。"
+        assert args["sync_to_maisaka_history"] is True
+        assert args["maisaka_source_kind"] == "guided_reply"
     finally:
         await plugin.on_unload()

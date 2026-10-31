@@ -245,6 +245,67 @@ async def test_only_dynamic_mode_adds_prompt_and_keeps_visible_text_clean(plugin
         await plugin.on_unload()
 
 
+@pytest.mark.parametrize("mode", ["off", "fixed", "dynamic"])
+@pytest.mark.parametrize("voice_override", [False, True])
+async def test_planner_tools_follow_effective_route_tone(plugin_module, tmp_path, mode, voice_override):
+    plugin = plugin_module.create_plugin()
+    plugin.set_plugin_config(plugin.get_default_config())
+    plugin._set_context(PluginContext("WhiteCloudOL.maimai-tts-plugin", paths=PluginPaths(tmp_path, tmp_path)))
+    await plugin.on_load()
+    try:
+        tone = {"mode": mode, "emotion": "happy", "allowed": ["happy"]}
+        profile = {
+            "id": "m",
+            "name": "MiMo",
+            "kind": "mimo",
+            "model": "mimo-v2.5-tts",
+            "voice": "mimo_default",
+            "base_url": "https://example.com/v1",
+            "response_format": "wav",
+            "models": [{"id": "mimo-v2.5-tts", "parameters": {"response_format": "wav", "tone": tone}}],
+        }
+        if voice_override:
+            profile["models"][0]["parameters"]["tone"] = {"mode": "dynamic", "emotion": "sad", "allowed": ["sad"]}
+            profile["voices"] = [{"id": "mimo_default", "name": "声音", "model": profile["model"], "tone": tone}]
+        await plugin.store.save(
+            {
+                "profiles": [profile],
+                "primary": {"provider_id": "m", "model_id": profile["model"], "voice": "mimo_default"},
+            },
+            0,
+        )
+        speak = next(c for c in plugin.get_components() if c["name"] == "mmtts_speak")
+        description = speak["metadata"]["description"]
+        assert "mmtts_tone_options" not in description
+        tools = [
+            {"function": {"name": "mmtts_speak", "description": description}},
+            {"function": {"name": "mmtts_tone_options", "description": "查询语调"}},
+            {"function": {"name": "reply", "description": "生成回复"}},
+        ]
+        for definitions in (tools, tools[1:]):
+            result = await plugin.prepare_planner_tone_prompt(
+                tool_definitions=definitions, session_id="stream", request_type="maisaka.planner"
+            )
+            modified = result.get("modified_kwargs", {"tool_definitions": definitions})
+            names = [t["function"]["name"] for t in modified["tool_definitions"]]
+            assert ("mmtts_tone_options" in names) == (mode == "dynamic")
+            assert "reply" in names
+            assert modified["session_id"] == "stream"
+            assert modified["request_type"] == "maisaka.planner"
+            if definitions is tools:
+                updated = modified["tool_definitions"][0]["function"]["description"]
+                assert ("[mmtts:happy]" in updated) == (mode == "dynamic")
+                if mode != "dynamic":
+                    assert updated == description
+        assert tools[0]["function"]["description"] == description
+        assert len(tools) == 3
+        reply = await plugin.prepare_dynamic_tone_prompt(extra_prompt="原有上下文", session_id="stream")
+        if mode != "dynamic":
+            assert reply == {"action": "continue"}
+    finally:
+        await plugin.on_unload()
+
+
 @pytest.mark.parametrize("language", ["zh", "en", "ja"])
 def test_prompt_locales_share_protocol(language):
     prompt = tone_prompt(["happy"], language, automatic=True, default="happy")
