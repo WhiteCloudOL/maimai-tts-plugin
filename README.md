@@ -22,7 +22,7 @@
 
 | 方式 | 联系 |
 | :--: | :--: |
-| Github Issue | [问题反馈 / 功能建议 / 平台接入](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/new/choose) |
+| Github Issue | [跳转](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/new/choose) |
 | QQ群 | [637174573](https://qm.qq.com/q/3f2bdkDsyW) |
 
 ---
