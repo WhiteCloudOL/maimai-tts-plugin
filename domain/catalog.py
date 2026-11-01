@@ -318,7 +318,7 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "note": (
             "音色页可选择预设、音频克隆或文字设计。克隆录音自动转换为 audio.voice 的 Base64；设计模式支持播报文本优化。"
         ),
-        "docs": "https://mimo.mi.com/docs/zh-CN/api/audio/tts",
+        "docs": "https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5",
     },
     "gpt_sovits": {
         "name": "GPT-SoVITS",

@@ -11,7 +11,7 @@ import asyncio
 import json
 
 from ..settings.config import RuntimeSection
-from ..domain.models import TTSError, validate_url
+from ..domain.models import Profile, TTSError, validate_url
 from .reference_audio import ReferenceAudioStore
 from .diagnostics import Diagnostics, redact_secrets
 
@@ -24,16 +24,43 @@ class Transport:
         self.log = diagnostics
         self._reference_files = ReferenceAudioStore(data_dir) if data_dir is not None else None
         self._request_slots = WeakValueDictionary()
+        self._owner = self
+        self._closed = False
+        self._sessions: Dict[bool, ClientSession] = {}
+        self._use_system_proxy = settings.use_system_proxy
+        self._proxy_url = settings.proxy_url or None
+
+    @property
+    def session(self) -> ClientSession:
+        if self._owner._closed:
+            raise TTSError("TTS 网络连接已关闭，请等待插件重载完成")
+        # 两组连接分别读取或忽略环境代理；每次请求仍显式使用本实例的代理地址。
+        # aiohttp 按代理参数隔离连接池，自定义代理之间无需额外创建会话。
+        if self._use_system_proxy not in self._sessions:
+            self._sessions[self._use_system_proxy] = self._create_session(self._use_system_proxy)
+        return self._sessions[self._use_system_proxy]
+
+    def _create_session(self, use_system_proxy: bool) -> ClientSession:
         trace = TraceConfig()
         trace.on_request_start.append(self._request_start)
         trace.on_request_end.append(self._request_end)
         trace.on_request_exception.append(self._request_exception)
-        self.session = ClientSession(
-            timeout=ClientTimeout(total=settings.timeout_seconds),
+        return ClientSession(
+            timeout=ClientTimeout(total=self.settings.timeout_seconds),
             # TTS 接口按每次请求鉴权；平台账号与无凭据下载之间不共享上游 Cookie。
             cookie_jar=DummyCookieJar(),
-            trust_env=settings.use_system_proxy,
-            trace_configs=[trace] if diagnostics is not None else [],
+            trust_env=use_system_proxy,
+            trace_configs=[trace] if self.log is not None else [],
+        )
+
+    def for_profile(self, profile: Profile) -> "Transport":
+        network = profile.network
+        if network.mode == "inherit":
+            return self._owner
+        return ProfileTransport(
+            self._owner,
+            proxy_url=network.proxy_url if network.mode == "custom" else None,
+            use_system_proxy=network.mode == "system",
         )
 
     async def _request_start(self, session: ClientSession, context: SimpleNamespace, params: Any) -> None:
@@ -73,7 +100,7 @@ class Transport:
 
     @property
     def proxy(self) -> Optional[str]:
-        return self.settings.proxy_url or None
+        return self._proxy_url
 
     @staticmethod
     def sanitize(message: str, headers: Dict[str, str]) -> str:
@@ -86,7 +113,11 @@ class Transport:
         return redact_secrets(message, secrets)
 
     async def close(self) -> None:
-        await self.session.close()
+        if self._owner is not self:
+            raise RuntimeError("服务商连接视图由主 Transport 统一关闭")
+        self._closed = True
+        await asyncio.gather(*(session.close() for session in self._sessions.values()))
+        self._sessions.clear()
 
     def request_slot(self, key: str) -> asyncio.Lock:
         """按服务实例串行调用；无等待者后自动释放对应锁的索引。"""
@@ -156,3 +187,17 @@ class Transport:
         # 独立请求不继承任何服务商 Authorization。禁止重定向到未经确认的目的地。
         async with self.session.get(url, proxy=self.proxy, allow_redirects=False) as response:
             return await self.read(response, limit)
+
+
+class ProfileTransport(Transport):
+    """每次平台操作持有不可变网络设置，共享由主 Transport 管理的有界连接资源。"""
+
+    def __init__(self, owner: Transport, *, proxy_url: Optional[str], use_system_proxy: bool) -> None:
+        self._owner = owner
+        self.settings = owner.settings
+        self.log = owner.log
+        self._reference_files = owner._reference_files
+        self._request_slots = owner._request_slots
+        self._sessions = owner._sessions
+        self._proxy_url = proxy_url
+        self._use_system_proxy = use_system_proxy

@@ -85,7 +85,8 @@ class TTSService:
     def provider(self, profile: Profile) -> Provider:
         if profile.kind not in {"compatible", "gpt_sovits", "breeze"} and not profile.api_key:
             raise TTSError("尚未配置 API Key / Access Token")
-        return PROVIDERS[profile.kind](self.http)
+        self.log.debug("平台网络设置", provider_id=profile.id, mode=profile.network.mode)
+        return PROVIDERS[profile.kind](self.http.for_profile(profile))
 
     async def catalog_list(self, profile: Profile, operation: str, *, refresh: bool = False) -> Any:
         provider = self.provider(profile)

@@ -58,8 +58,9 @@ class MiniMaxProvider(Provider):
         payload = speech_payload(profile, text)
         opts = profile.options
         payload["voice_setting"].pop("text_normalization")
-        if opts.minimax_normalization:
-            payload["text_normalization_mode"] = opts.minimax_normalization
+        normalization = opts.minimax_normalization or ("basic" if opts.text_normalization else "")
+        if normalization:
+            payload["text_normalization_mode"] = normalization
         if opts.minimax_force_cbr:
             payload["audio_setting"]["force_cbr"] = True
         return payload
@@ -223,6 +224,8 @@ class MiniMaxProvider(Provider):
                 raise TTSError("示例录音与对应文字需要同时填写")
             source = opts.minimax_prompt_audio
             prompt_id = int(source) if source.isdigit() else await self.upload(profile, source, "prompt_audio")
+            if prompt_id <= 0:
+                raise TTSError("MiniMax 示例录音 file_id 需要填写正整数")
             body["clone_prompt"] = {"prompt_audio": prompt_id, "prompt_text": opts.prompt_text}
         if opts.minimax_validation_text:
             body.update(text_validation=opts.minimax_validation_text, accuracy=opts.minimax_validation_accuracy)
@@ -239,7 +242,7 @@ class MiniMaxProvider(Provider):
         if not (
             sensitive is False
             or (isinstance(sensitive, dict) and type(sensitive.get("type")) is int and sensitive["type"] == 0)
-        ):
+        ) or result.get("input_sensitive_type", 0) != 0:
             raise TTSError("MiniMax 录音未通过内容检查，或响应缺少检查结果")
         preview = None
         if text.strip():

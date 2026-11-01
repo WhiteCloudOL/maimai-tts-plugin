@@ -162,6 +162,7 @@ class Provider:
             "kind": profile.kind,
             "url": self.url(profile, operation),
             "headers": self.headers(profile),
+            "network": profile.network.model_dump(),
             "model": profile.model if operation == "voices" else "",
         }
 

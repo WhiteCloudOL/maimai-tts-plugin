@@ -3,10 +3,12 @@
 from typing import Any, Dict, List
 
 import asyncio
-import base64
 
 from ..domain.models import Audio, Profile, TTSError
 from .base import Provider, decode_audio, normalize_audio
+
+
+MAX_REFERENCE_BASE64_BYTES = 10_000_000
 
 
 class MiMoProvider(Provider):
@@ -22,16 +24,19 @@ class MiMoProvider(Provider):
         if profile.instructions:
             messages.append({"role": "user", "content": profile.instructions})
         messages.append({"role": "assistant", "content": text})
-        audio: Dict[str, Any] = {"format": profile.response_format}
+        audio: Dict[str, Any] = {"format": "pcm16" if profile.response_format == "pcm" else profile.response_format}
         if "voiceclone" in profile.model:
-            reference = await self.reference_bytes(profile)
-            audio["voice"] = await asyncio.to_thread(lambda: base64.b64encode(reference).decode("ascii"))
+            # MiMo 要求带实际 MIME 的 Data URL，编码后的参考录音最多 10 MB。
+            # 为 Data URL 的 MIME 前缀预留空间，使整个字段也落在文档的编码上限内。
+            maximum = (MAX_REFERENCE_BASE64_BYTES - 32) // 4 * 3
+            audio["voice"] = await self.reference_audio(profile, limit=min(maximum, self.http.limit))
         elif "voicedesign" in profile.model:
             if not profile.instructions:
                 raise TTSError("MiMo voicedesign 模型需要填写音色设计指令")
             audio["optimize_text_preview"] = profile.options.optimize_text_preview
         else:
-            audio["voice"] = profile.voice
+            if profile.voice:
+                audio["voice"] = profile.voice
         result = await self.http.json(
             "POST",
             self.url(profile),
@@ -54,4 +59,9 @@ class MiMoProvider(Provider):
             raise TTSError("MiMo 响应缺少 choices[0].message.audio 对象")
         data = message["audio"].get("data")
         decoded = await asyncio.to_thread(decode_audio, data, self.http.limit)
+        if profile.response_format == "pcm":
+            # 官方 PCM 固定为 24 kHz、16-bit、小端单声道，独立于其他平台的采样率设置。
+            profile = profile.model_copy(update={
+                "options": profile.options.model_copy(update={"sample_rate": 24000}),
+            })
         return await normalize_audio(decoded, profile, result.get("id", ""))

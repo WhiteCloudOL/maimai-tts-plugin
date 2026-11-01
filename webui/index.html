@@ -2195,7 +2195,11 @@
         return `<div class="workspace"><aside><div class="maibot-card panel"><div class="list-top"><span class="overline">PROVIDERS</span><span class="maibot-badge badge">${state.config.profiles.length} / 20</span></div><div class="provider-list">${state.config.profiles.map((p) => `<button class="maibot-button provider-btn ${p.enabled ? "" : "off"}" data-provider="${h(p.id)}" aria-current="${p.id === state.selected}">${mark(p)}<span><strong>${h(p.name)}</strong><small>${h(!p.enabled ? "已停用" : preset(p).tag)}</small></span></button>`).join("")}</div><div class="list-bottom"><button class="maibot-button key" data-action="add">＋ 添加服务商</button></div></div><p class="helper">同一平台可添加多个配置，分别使用不同模型、账号或音色。</p></aside>${p ? editor(p) : `<section class="maibot-card panel empty"><div class="empty-symbol" aria-hidden="true">∿</div><h2>给麦麦接上声音</h2><p>选择一个语音平台，填入接口和密钥。模型、音色与备选服务，都可以在这里管理。</p><button class="maibot-button maibot-button-primary key primary" data-action="add">添加第一个服务商 ↗</button></section>`}</div>`;
       }
       function editor(p) {
-        return `<section class="maibot-card panel"><div class="panel-head"><div class="flex-wrap">${mark(p)}<div><h2>${h(p.name)}</h2><p>${h(preset(p).name)} / ${h(preset(p).tag)}</p></div></div><div class="editor-actions"><label class="switch-label"><span>${p.enabled ? "已启用" : "已停用"}</span><input class="switch" type="checkbox" data-field="enabled" aria-label="启用此服务商" ${p.enabled ? "checked" : ""}></label><button class="maibot-button maibot-button-primary key small" data-action="save-profile" data-save="profile">保存此平台</button></div></div><div class="panel-body">${connectionForm(p)}<details class="advanced-settings"><summary>高级设置 · 自定义辅助接口</summary><div>${platformInterfacesForm(p)}</div></details></div><div class="editor-foot"><button class="maibot-button key small danger flat" data-action="delete">删除服务商</button><button class="maibot-button key small" data-tab="routing">前往整体路由 ↗</button></div></section>`;
+        return `<section class="maibot-card panel"><div class="panel-head"><div class="flex-wrap">${mark(p)}<div><h2>${h(p.name)}</h2><p>${h(preset(p).name)} / ${h(preset(p).tag)}</p></div></div><div class="editor-actions"><label class="switch-label"><span>${p.enabled ? "已启用" : "已停用"}</span><input class="switch" type="checkbox" data-field="enabled" aria-label="启用此服务商" ${p.enabled ? "checked" : ""}></label><button class="maibot-button maibot-button-primary key small" data-action="save-profile" data-save="profile">保存此平台</button></div></div><div class="panel-body">${connectionForm(p)}<details class="advanced-settings"><summary>网络代理 · 当前服务商实例</summary>${networkForm(p)}</details><details class="advanced-settings"><summary>高级设置 · 自定义辅助接口</summary><div>${platformInterfacesForm(p)}</div></details></div><div class="editor-foot"><button class="maibot-button key small danger flat" data-action="delete">删除服务商</button><button class="maibot-button key small" data-tab="routing">前往整体路由 ↗</button></div></section>`;
+      }
+      function networkForm(p) {
+        p.network ||= { mode: "direct", proxy_url: "" };
+        return `<div class="form-grid">${selectField("network.mode", "连接方式", p.network.mode, [["direct", "关闭代理（直接连接）"], ["system", "系统环境代理"], ["custom", "自定义 HTTP/HTTPS 代理"], ["inherit", "沿用插件运行设置"]])}${field("network.proxy_url", "代理地址", p.network.proxy_url, "自定义模式使用此地址，例如 http://127.0.0.1:7890。系统模式读取运行麦麦进程的代理环境变量。", "url", true)}</div><p class="muted">此设置应用于本实例的语音合成、模型与音色列表、音色克隆、参考音频下载及 WebSocket 连接。</p>`;
       }
       function platformInterfacesForm(p) {
         return `<div class="form-grid">${field("models_url", "模型列表 URL", p.models_url, "留空时从 BaseURL 自动生成；按需填写自定义完整接口。", "url", true)}${field("voices_url", "账号音色列表 URL", p.voices_url, "留空时使用平台预设路径。", "url", true)}${field("clone_url", "音色复刻 URL", p.clone_url, "留空时使用平台预设的音色复刻路径。", "url", true)}</div>`;
@@ -5701,12 +5705,15 @@
           ? state.config.feature
           : parts[0] === "options"
             ? current().options
-            : current();
+            : parts[0] === "network"
+              ? current().network
+              : current();
         if (!target) return;
         if (key === "options.sample_rate") value = Number(value);
         if (key === "api_key" && value === "") delete target.api_key;
         else target[parts.at(-1)] = value;
         if (!isFeature) invalidateConnectionField(current().id, key);
+        if (key.startsWith("network.")) invalidateProfileLists(current().id);
         if (key === "options.breeze_api_mode") {
           const p = current(), cat = preset(p), cloud = value === "cloud";
           if ([cat.base_url, cat.cloud_base_url].includes(p.base_url)) {

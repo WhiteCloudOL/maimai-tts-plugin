@@ -4,7 +4,7 @@
 
 # 麦麦多平台TTS语音
 
-[![Plugin 2.0.5](https://img.shields.io/badge/Plugin-2.0.5-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.5)
+[![Plugin 2.0.6](https://img.shields.io/badge/Plugin-2.0.6-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.6)
 [![MaiBot 1.3.6–1.3.99](https://img.shields.io/badge/MaiBot-1.3.6--1.3.99-007ec6?style=flat)](#快速开始)
 [![Plugin SDK 2.13.0–2.20.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.20.0-8A2BE2?style=flat)](#快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
@@ -93,6 +93,19 @@
 ### 4 · 试听并保存
 
 在音色窗口点击 **试听音色**，或前往「试听工作台」输入文字并选择模型合成。音色窗口中的 **保存音色**、**保存所选音色** 和模型窗口中的 **保存模型** 会直接保存到对应平台。平台启用开关旁的 **保存此平台** 用于连接配置，页面顶部的 **保存全部设置** 可同时保存各平台、路由和回复行为。
+
+### 服务商网络代理
+
+在服务商设置中展开 **网络代理 · 当前服务商实例**，为每个实例分别选择连接方式。默认选择 **关闭代理（直接连接）**。
+
+| 连接方式 | 用法 |
+| :--- | :--- |
+| 关闭代理（直接连接） | 由运行麦麦的服务器直接连接平台 |
+| 系统环境代理 | 读取麦麦进程的 `HTTP_PROXY`、`HTTPS_PROXY`、`WS_PROXY`、`WSS_PROXY` 与 `NO_PROXY` 环境设置 |
+| 自定义 HTTP/HTTPS 代理 | 填写代理主机与端口，例如 `http://127.0.0.1:7890` |
+| 沿用插件运行设置 | 使用 `config.toml` 中的 `runtime.proxy_url` 与 `runtime.use_system_proxy` |
+
+代理设置随当前平台保存，应用于该实例的语音合成、模型与音色列表、音色克隆、参考音频下载及 WebSocket 请求。代理地址以麦麦所在服务器或容器的网络环境为准；Docker 部署时填写容器可访问的代理地址。
 
 ## 模型与音色
 
@@ -350,9 +363,27 @@ OpenAI 自定义音色可勾选 **使用 OpenAI 自定义音色对象（voice.id
 
 百炼 MiniMax 复刻录音使用公网 MP3 / M4A / WAV 链接，时长 10 秒至 5 分钟，文件最多 20 MB。自定义音色 ID 长度为 8–256 位，以英文字母开头、字母或数字结尾，中间可使用 `_` 和 `-`。克隆时可配置降噪、音量归一化和示例录音；创建请求会生成试听音频，按平台规则计算试听用量，首次正式使用复刻音色时计收音色费用。
 
+### 小米 MiMo
+
+BaseURL 使用 `https://api.xiaomimimo.com/v1`，三种模型分别配置音色：
+
+| 模型 | 音色配置 |
+| :--- | :--- |
+| `mimo-v2.5-tts` | 选择 `mimo_default`、冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo 或 Dean |
+| `mimo-v2.5-tts-voiceclone` | 在“音色与克隆”中保存 MP3 / WAV 参考录音，支持麦麦本地文件与公开音频 URL |
+| `mimo-v2.5-tts-voicedesign` | 填写声音设计描述，可选择优化播报文本；按原文朗读时，将优化开关设为关闭 |
+
+克隆录音编码后的大小上限为 **10 MB**，工作台常规录音导入上限为 **7 MiB**。参考录音与说话风格分别保存在该模型的音色配置中，也可选择固定或动态语调。
+
+输出支持 WAV、MP3 与 PCM。MiMo 的 PCM 使用 **24 kHz、16-bit、单声道**，工作台会自动封装为 WAV 播放。
+
+官方说明：[MiMo 语音合成、声音设计与音色克隆](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5)。
+
 ### MiniMax 官方平台
 
 在 **添加服务商 → MiniMax** 中填写官方 API Key 与 BaseURL，选择 `speech-2.8-hd`、`speech-2.8-turbo`、`speech-2.6-hd`、`speech-2.6-turbo`、`speech-02-hd`、`speech-02-turbo`、`speech-01-hd` 或 `speech-01-turbo`。
+
+聊天语音默认采用 **同步 HTTP 合成**：提交本轮正文，取得完整音频后发送。HTTP SSE 与 WebSocket 也属于同步合成，可在模型专属参数中选用；平台的异步任务接口面向长篇音频制作。
 
 | 位置 | 可配置内容 |
 | :--- | :--- |
@@ -443,7 +474,7 @@ MiniMax 的声音效果可在 MP3 / WAV / FLAC 下调整音高、强度、音色
 | 阿里云_CosyVoice | 创建复刻音色 | 读取文件，通过 `audio` 字段提交 Base64 Data URI |
 | MiniMax 官方 | 创建克隆音色 | 上传文件后调用音色复刻，支持复用文件 ID |
 | 硅基流动 | 创建账号音色、动态参考录音 | 读取文件并提交 Base64 音频 |
-| MiMo | 每次合成使用参考录音克隆 | 读取文件并提交 Base64 音频 |
+| MiMo | 每次合成使用参考录音克隆 | 选择本地文件或公开 URL，自动处理录音格式 |
 | OpenAI | 创建账号克隆音色 | 连同已有授权记录 ID 上传录音文件 |
 | 火山引擎 | 注册或训练复刻音色 | 上传音频 Base64，保留音色 ID 与训练状态 |
 | GPT-SoVITS | 使用参考录音合成 | 向同机服务传递绝对路径；异机服务使用服务端路径 |
@@ -646,8 +677,8 @@ API Key 保存在服务端。已有密钥会显示保存状态；输入框留空
 | `runtime.list_cache_ttl_seconds` | `300` | 模型与账号音色列表缓存时长，单位秒；设为 0 可关闭 |
 | `runtime.audio_cache_ttl_seconds` | `300` | 合成与转码音频缓存时长，单位秒；设为 0 可关闭 |
 | `runtime.cache_max_size_mb` | `64` | 共享内存缓存容量，单位 MiB；设为 0 可关闭 |
-| `runtime.proxy_url` | 留空 | 指定 HTTP 代理 |
-| `runtime.use_system_proxy` | `false` | 使用系统代理环境设置 |
+| `runtime.proxy_url` | 留空 | 选择“沿用插件运行设置”的实例使用此代理地址 |
+| `runtime.use_system_proxy` | `false` | 选择“沿用插件运行设置”时读取代理环境变量 |
 
 列表按平台接口、账号与模型归属复用，音频按实际正文、模型、音色、语调及合成参数复用。并发相同请求会合并处理，容量达到上限时优先保留最近使用的结果；修改显示名称、收藏和路由后，相同语音仍可命中缓存。参考文件与外部权重参与合成时逐次读取来源，重载插件后重新建立内存缓存。
 

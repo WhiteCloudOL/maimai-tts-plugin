@@ -217,6 +217,22 @@ class ConfiguredModel(Model):
     parameters: Optional[ModelParameters] = None
 
 
+class NetworkSettings(Model):
+    mode: Literal["inherit", "direct", "system", "custom"] = "direct"
+    proxy_url: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_proxy(self) -> "NetworkSettings":
+        if self.proxy_url:
+            validate_url(self.proxy_url)
+            parsed = urlsplit(self.proxy_url)
+            if parsed.query or parsed.path not in ("", "/"):
+                raise ValueError("代理地址请填写 HTTP/HTTPS 主机与端口")
+        if self.mode == "custom" and not self.proxy_url:
+            raise ValueError("自定义代理模式需要填写 HTTP/HTTPS 代理地址")
+        return self
+
+
 class Profile(Model):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     name: str = Field(min_length=1, max_length=80)
@@ -233,6 +249,7 @@ class Profile(Model):
     models_url: str = Field(default="", max_length=2000)
     voices_url: str = Field(default="", max_length=2000)
     clone_url: str = Field(default="", max_length=2000)
+    network: NetworkSettings = Field(default_factory=NetworkSettings)
     options: ProviderOptions = Field(default_factory=ProviderOptions)
     tone: ToneSettings = Field(default_factory=ToneSettings)
     voices: List[Voice] = Field(default_factory=list, max_length=100)

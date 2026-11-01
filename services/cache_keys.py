@@ -56,7 +56,9 @@ class CacheKeys:
             }:
                 return None
         values = profile.model_dump(
-            exclude={"id", "name", "enabled", "models", "voices", "models_url", "voices_url", "clone_url", "tone"}
+            exclude={
+                "id", "name", "enabled", "models", "voices", "models_url", "voices_url", "clone_url", "tone", "network",
+            }
         )
         management = {
             "breeze_voice_type",
