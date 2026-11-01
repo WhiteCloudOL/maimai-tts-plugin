@@ -1,13 +1,14 @@
 """麦麦TTS语音：框架生命周期与工作台 API 的薄适配。"""
 
 from maibot_sdk import API, MaiBotPlugin
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 import json
 
 from .settings.config import TTSConfig
-from .components.messaging import MessagingMixin, ProbabilityReplyState
+from .components.messaging import MessagingMixin
 from .components.intonation import IntonationMixin
+from .components.probability import ProbabilityMixin, ProbabilityReplyState
 from .domain.models import TTSError
 from .services.tts import TTSService
 from .infrastructure.storage import ConfigStore
@@ -15,7 +16,7 @@ from .infrastructure.reference_audio import ReferenceAudioStore
 from .services.studio import Studio
 
 
-class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
+class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin):
     config_model = TTSConfig
 
     def __init__(self) -> None:
@@ -24,7 +25,7 @@ class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
         self._service: Optional[TTSService] = None
         self._studio: Optional[Studio] = None
         self._probability_reply_states: Dict[str, ProbabilityReplyState] = {}
-        self._control_reply_guards: Set[Tuple[str, str]] = set()
+        self._probability_reply_available_sessions: Set[str] = set()
 
     @property
     def store(self) -> ConfigStore:
@@ -63,7 +64,7 @@ class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
         self._service = None
         self._store = None
         self._probability_reply_states.clear()
-        self._control_reply_guards.clear()
+        self._probability_reply_available_sessions.clear()
 
     def _log_configuration(self, event: str) -> None:
         config = self.store.config
@@ -88,7 +89,7 @@ class TTSPlugin(IntonationMixin, MessagingMixin, MaiBotPlugin):
             "语音触发方式",
             command="/tts <文本>",
             tool="mmtts_speak",
-            automatic="由出站文本 Hook 判定",
+            automatic="由 LLM 回复扩展按整轮判定",
             natural_language="由主程序生成回复并调用语音工具",
         )
 

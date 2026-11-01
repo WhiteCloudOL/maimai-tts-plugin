@@ -115,7 +115,10 @@ class IntonationMixin:
         del hook_name
         if not self.config.plugin.enabled or not (self.features.probability_enabled or self.features.tool_enabled):
             return {"action": "continue"}
-        prompt = self.dynamic_tone_prompt(automatic=self.features.probability_enabled)
+        automatic = self.features.probability_enabled and self._is_probability_reply(kwargs.get("reply_tool_args"))
+        if not automatic and not self.features.tool_enabled:
+            return {"action": "continue"}
+        prompt = self.dynamic_tone_prompt(automatic=automatic)
         if not prompt:
             return {"action": "continue"}
         modified = dict(kwargs)
