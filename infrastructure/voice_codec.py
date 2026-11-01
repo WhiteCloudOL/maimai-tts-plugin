@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 import av
 import base64
+import hashlib
 import pysilk
 
 from ..domain.models import Audio, TTSError
@@ -65,4 +66,7 @@ def encode_silk(audio: Audio, limit: int) -> Audio:
 
 def voice_segment(audio: Audio) -> Dict[str, Any]:
     """SDK hybrid 与发送 Hook 共用同一个二进制语音段契约。"""
-    return {"type": "voice", "data": "", "binary_data_base64": base64.b64encode(audio.data).decode("ascii")}
+    return {
+        "type": "voice", "data": "", "hash": hashlib.sha256(audio.data).hexdigest(),
+        "binary_data_base64": base64.b64encode(audio.data).decode("ascii"),
+    }

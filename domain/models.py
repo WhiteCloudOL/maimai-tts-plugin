@@ -522,6 +522,7 @@ class Features(Model):
     probability_group_enabled: bool = True
     probability_private_enabled: bool = True
     probability_keep_text: bool = False
+    probability_quote_keep_text: bool = True
     tool_keep_text: bool = False
     allow_voice_override: bool = False
     allow_speed_override: bool = True

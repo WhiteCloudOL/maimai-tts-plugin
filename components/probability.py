@@ -25,6 +25,15 @@ class ProbabilityReplyState:
     expires_at: float
 
 
+@dataclass
+class ProbabilityVoiceState:
+    """等待 Host 确定引用方式的自有语音，保留对应的干净正文。"""
+
+    reply_id: str
+    text_segments: List[Dict[str, Any]]
+    expires_at: float
+
+
 class ProbabilityMixin:
     def _probability_extension_name(self) -> str:
         return f"{self.ctx.plugin_id}.probability_tts"
@@ -251,7 +260,72 @@ class ProbabilityMixin:
         self.service.log.info(
             "已将 LLM 语音回复交给发送链", stream_id=session_id, reply_id=reply_id, segments=len(converted)
         )
+        # Host 在回复扩展结束后才确定引用目标，因此在发送前按实际引用状态整理正文。
+        # 仅登记整轮成功合成的自有音频，普通指令和其他插件的发送保持独立。
+        for original, message in zip(cleaned, converted, strict=True):
+            voice = next(segment for segment in message["segments"] if segment["type"] == "voice")
+            key = (session_id, voice["hash"], voice["data"])
+            self._probability_voice_states.setdefault(key, []).append(ProbabilityVoiceState(
+                reply_id=reply_id, text_segments=original["segments"], expires_at=monotonic() + 600,
+            ))
         return {"messages": converted}
+
+    @HookHandler(
+        "send_service.before_send",
+        name="arrange_probability_reply_quote",
+        description="按实际引用方式保留概率语音回复的正文，避免空引用卡片",
+        mode=HookMode.BLOCKING,
+        timeout_ms=1000,
+    )
+    async def arrange_probability_reply_quote(
+        self, message: Optional[Dict[str, Any]] = None, set_reply: bool = False, **kwargs: Any
+    ) -> Dict[str, Any]:
+        if not isinstance(message, dict) or not isinstance(message.get("raw_message"), list):
+            return {"action": "continue"}
+        segments = message["raw_message"]
+        voices = [segment for segment in segments if isinstance(segment, dict) and segment.get("type") == "voice"]
+        if len(voices) != 1:
+            return {"action": "continue"}
+        voice = voices[0]
+        key = (message.get("session_id"), voice.get("hash"), voice.get("data"))
+        if not all(isinstance(value, str) for value in key):
+            return {"action": "continue"}
+        self._remove_expired_probability_states()
+        pending = self._probability_voice_states.get(key)
+        if not pending:
+            return {"action": "continue"}
+        state = pending.pop(0)
+        if not pending:
+            del self._probability_voice_states[key]
+        quoted = set_reply or any(
+            isinstance(segment, dict) and segment.get("type") == "reply" for segment in segments
+        )
+        if not quoted:
+            return {"action": "continue"}
+
+        keep_voice = self.features.probability_quote_keep_text
+        has_text = any(
+            isinstance(segment, dict) and segment.get("type") == "text"
+            and isinstance(segment.get("data"), str) and segment["data"].strip() for segment in segments
+        )
+        arranged: List[Dict[str, Any]] = []
+        for segment in segments:
+            if segment is voice:
+                if not has_text:
+                    arranged.extend(deepcopy(state.text_segments))
+                if keep_voice:
+                    arranged.append(deepcopy(voice))
+            else:
+                arranged.append(deepcopy(segment))
+        if arranged == segments:
+            return {"action": "continue"}
+        updated = dict(message, raw_message=arranged, processed_plain_text="")
+        # reply_to 仍是 QQ 官方被动回复的发送上下文；引用组件、目标和路由字段完整保留。
+        self.service.log.debug(
+            "已整理概率语音引用回复", stream_id=key[0], reply_id=state.reply_id,
+            mode="text_and_voice" if keep_voice else "text_only",
+        )
+        return {"action": "continue", "modified_kwargs": dict(kwargs, message=updated, set_reply=set_reply)}
 
     async def _convert_probability_messages(
         self, messages: List[Dict[str, Any]], original_texts: List[Optional[str]]
@@ -314,3 +388,9 @@ class ProbabilityMixin:
         expired = [key for key, value in self._probability_reply_states.items() if value.expires_at <= now]
         for key in expired:
             del self._probability_reply_states[key]
+        for key, states in list(self._probability_voice_states.items()):
+            active = [state for state in states if state.expires_at > now]
+            if active:
+                self._probability_voice_states[key] = active
+            else:
+                del self._probability_voice_states[key]

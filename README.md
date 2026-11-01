@@ -4,7 +4,7 @@
 
 # 麦麦多平台TTS语音
 
-[![Plugin 2.0.4](https://img.shields.io/badge/Plugin-2.0.4-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.4)
+[![Plugin 2.0.5](https://img.shields.io/badge/Plugin-2.0.5-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.5)
 [![MaiBot 1.3.6–1.3.99](https://img.shields.io/badge/MaiBot-1.3.6--1.3.99-007ec6?style=flat)](#快速开始)
 [![Plugin SDK 2.13.0–2.20.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.20.0-8A2BE2?style=flat)](#快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
@@ -602,6 +602,8 @@ GPT-SoVITS 与麦麦共用文件系统时，选择「麦麦本地文件」；异
 开启 **概率语音**，设置转换概率、字符范围及群聊/私聊开关。例如 `0.2` 表示约 20% 的回复使用语音。概率和长度按拆分前的整轮正文判断，各文字分段沿用同一结果，较短的分段也会继续合成。
 
 自动转换范围为麦麦的 LLM 回复；指令返回、插件通知和其他文本发送保持原样。每条 LLM 回复独立保存判定，同会话中的多轮回复分别处理。图片、表情和 At 回复继续采用原有形式；合成失败时整轮使用文字。`/mmtts` 命令和 `mmtts_speak` 工具按显式请求发送语音。
+
+**引用回复保留文本** 默认开启：引用回复保留引用卡片与麦麦自己的回复正文，并另发该正文的语音。关闭此项后，引用回复保持文字，普通文本回复继续按概率转换。朗读内容始终取自麦麦本轮的回复正文；引用卡片中的原消息保持原样。「概率语音同时保留文字」控制普通文本回复的文字保留方式。
 
 ### QQ 官方机器人、SnowLuma 与 NapCat
 

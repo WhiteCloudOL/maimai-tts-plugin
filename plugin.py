@@ -1,14 +1,14 @@
 """麦麦TTS语音：框架生命周期与工作台 API 的薄适配。"""
 
 from maibot_sdk import API, MaiBotPlugin
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import json
 
 from .settings.config import TTSConfig
 from .components.messaging import MessagingMixin
 from .components.intonation import IntonationMixin
-from .components.probability import ProbabilityMixin, ProbabilityReplyState
+from .components.probability import ProbabilityMixin, ProbabilityReplyState, ProbabilityVoiceState
 from .domain.models import TTSError
 from .services.tts import TTSService
 from .infrastructure.storage import ConfigStore
@@ -26,6 +26,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         self._studio: Optional[Studio] = None
         self._probability_reply_states: Dict[str, ProbabilityReplyState] = {}
         self._probability_reply_available_sessions: Set[str] = set()
+        self._probability_voice_states: Dict[Tuple[str, str, str], List[ProbabilityVoiceState]] = {}
 
     @property
     def store(self) -> ConfigStore:
@@ -65,6 +66,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         self._store = None
         self._probability_reply_states.clear()
         self._probability_reply_available_sessions.clear()
+        self._probability_voice_states.clear()
 
     def _log_configuration(self, event: str) -> None:
         config = self.store.config
