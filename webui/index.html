@@ -7,6 +7,9 @@
     <style>
       :root {
         color-scheme: light;
+        --visible-top: var(--maibot-viewport-top, 0px);
+        --visible-height: min(100dvh, var(--maibot-viewport-height, 100dvh));
+        --dialog-gap: 16px;
         --shell: var(--maibot-background, #ddd4bf);
         --panel: var(--maibot-surface, #ebe4d2);
         --screen: var(--maibot-soft, #fbf9f0);
@@ -191,6 +194,7 @@
       }
       .top {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         align-items: center;
         gap: 22px;
@@ -221,13 +225,16 @@
       }
       .actions {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 10px;
       }
       .key {
         gap: 8px;
         min-height: 40px;
-        white-space: nowrap;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
         transition:
           transform 60ms ease-out,
           background-color 120ms ease-out;
@@ -398,6 +405,9 @@
       .provider-list {
         padding: 9px;
       }
+      .field.provider-picker {
+        display: none;
+      }
       .provider-btn {
         width: 100%;
         display: flex;
@@ -429,7 +439,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        max-width: 140px;
       }
       .provider-btn small {
         display: block;
@@ -511,6 +520,7 @@
       }
       .input {
         width: 100%;
+        min-width: 0;
         min-height: 40px;
         transition: outline-color 120ms ease-out;
       }
@@ -568,6 +578,7 @@
       }
       .section-title {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         gap: 12px;
         align-items: center;
@@ -729,9 +740,6 @@
         margin: 14px 0;
       }
       .choice-list {
-        max-height: 340px;
-        overflow: auto;
-        overscroll-behavior: contain;
         display: grid;
         gap: 7px;
         padding: 3px;
@@ -748,6 +756,10 @@
       }
       .choice-row:has(input:checked) {
         background: var(--green);
+        color: var(--green-ink);
+      }
+      .choice-row:has(input:checked) small {
+        color: var(--green-ink);
       }
       .choice-row:focus-within {
         outline: 2px solid var(--green-side);
@@ -823,58 +835,6 @@
         text-align: center;
         color: var(--muted);
         font-size: 12px;
-      }
-      .library-dialog[open] {
-        display: flex;
-        flex-direction: column;
-        width: min(760px, 94vw);
-        height: min(760px, 92vh);
-        max-height: 92vh;
-        overflow: hidden;
-      }
-      .library-dialog .dialog-head {
-        flex: 0 0 auto;
-        padding: 18px 24px;
-      }
-      .library-dialog .dialog-body {
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        padding: 18px 24px;
-        overflow: hidden;
-      }
-      .library-dialog .dialog-body > * {
-        flex-shrink: 0;
-      }
-      .library-dialog .choice-list {
-        flex: 1 1 auto;
-        min-height: 80px;
-        max-height: none;
-      }
-      .library-dialog .choice-toolbar {
-        margin: 10px 0;
-      }
-      .library-dialog .choice-footer {
-        margin-top: 12px;
-        padding-top: 12px;
-      }
-      .library-dialog .choice-manual {
-        margin-top: 8px;
-      }
-      .library-dialog .choice-manual[open] {
-        flex-shrink: 1;
-        max-height: 180px;
-        min-height: 84px;
-        overflow: auto;
-      }
-      @media (max-height: 600px) {
-        .library-dialog .dialog-body {
-          overflow-y: auto;
-        }
-        .library-dialog .choice-list {
-          min-height: 120px;
-          max-height: 200px;
-        }
       }
       .voice-list {
         display: grid;
@@ -995,9 +955,9 @@
       }
       .toast {
         position: fixed;
-        bottom: 20px;
+        top: calc(var(--visible-top) + 12px);
         left: 50%;
-        transform: translate(-50%, 15px);
+        transform: translate(-50%, -6px);
         opacity: 0;
         pointer-events: none;
         z-index: 1000;
@@ -1044,9 +1004,9 @@
       #routing-status {
         white-space: normal;
       }
-      dialog {
-        width: min(660px, 92vw);
-        max-height: 85vh;
+      #dialog {
+        width: 660px;
+        max-width: calc(100% - 2 * var(--dialog-gap));
         border: 2px solid var(--line);
         border-radius: var(--radius);
         padding: 0;
@@ -1061,43 +1021,80 @@
         background: #20291c70;
         backdrop-filter: blur(3px);
       }
-      dialog[open] {
+      #dialog[open] {
         position: fixed;
-        inset: 50% auto auto 50%;
+        /* 宿主滚动时，只在 iframe 仍然可见的部分显示弹窗。 */
+        inset: calc(var(--visible-top) + var(--visible-height) / 2) auto auto 50%;
         margin: 0;
         transform: translate(-50%, -50%);
         display: flex;
         flex-direction: column;
-        max-height: calc(100dvh - 32px);
+        max-height: max(0px, calc(var(--visible-height) - 2 * var(--dialog-gap)));
         overflow: hidden;
-        animation: modal-in 0.16s ease-out;
-      }
-      @keyframes modal-in {
-        from {
-          opacity: 0;
-          transform: translate(-50%, -49%);
-        }
-        to {
-          opacity: 1;
-          transform: translate(-50%, -50%);
-        }
       }
       .dialog-head {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 22px 25px;
+        gap: 12px;
+        padding: 12px 20px;
         border-bottom: 1px solid var(--line);
         flex-shrink: 0;
       }
       .dialog-head .key {
+        flex: 0 0 auto;
+        min-width: 44px;
+        min-height: 44px;
         box-shadow: none;
       }
+      .dialog-head h2 {
+        min-width: 0;
+        font-size: 18px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
       .dialog-body {
-        padding: 25px;
+        padding: 20px;
         min-height: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
+      }
+      #dialog > .toast {
+        position: absolute;
+        top: auto;
+        bottom: 8px;
+        width: max-content;
+        max-width: calc(100% - 16px);
+      }
+      .task-status {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .task-status span:not(.spinner) {
+        flex: 1;
+      }
+      #task-status {
+        position: sticky;
+        bottom: 12px;
+        z-index: 1;
+        max-width: 500px;
+        margin: 20px auto 0;
+      }
+      #dialog #task-status {
+        position: static;
+        margin: 0;
+        max-width: none;
+        border-width: 0 0 1px;
+        flex-shrink: 0;
       }
       .provider-gallery {
         display: grid;
@@ -1195,9 +1192,6 @@
           grid-template-columns: 200px minmax(0, 1fr);
           gap: 15px;
         }
-        .provider-btn strong {
-          max-width: 115px;
-        }
         .panel-body {
           padding: 20px;
         }
@@ -1218,6 +1212,9 @@
         }
       }
       @media (max-width: 700px) {
+        :root {
+          --dialog-gap: 8px;
+        }
         body {
           padding: 16px 12px;
         }
@@ -1227,11 +1224,12 @@
           gap: 17px;
         }
         .top .actions {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
           width: 100%;
-          justify-content: flex-end;
         }
         .top .actions .dirty-label {
-          margin-right: auto;
+          grid-column: 1/-1;
         }
         h1 {
           font-size: 25px;
@@ -1260,16 +1258,11 @@
           grid-template-columns: 1fr;
         }
         .provider-list {
+          display: none;
+        }
+        .field.provider-picker {
           display: flex;
-          overflow: auto;
-          gap: 8px;
-        }
-        .provider-btn {
-          width: auto;
-          min-width: 180px;
-        }
-        .provider-btn strong {
-          max-width: 135px;
+          padding: 8px 15px;
         }
         .list-top {
           padding: 13px 16px 0;
@@ -1303,7 +1296,10 @@
           grid-template-columns: 1fr;
         }
         .nav {
-          gap: 2px;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          overflow: visible;
         }
         .nav .key {
           padding: 0 10px 3px;
@@ -1325,7 +1321,20 @@
           gap: 12px;
         }
         .dirty-label {
-          font-size: 10px;
+          font-size: 12px;
+        }
+        .editor-foot {
+          flex-wrap: wrap;
+        }
+        .model-library {
+          max-height: none;
+          overflow: visible;
+        }
+        .dialog-head {
+          padding: 8px 12px;
+        }
+        .dialog-body {
+          padding: 14px;
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -1371,6 +1380,7 @@
       }
       .provider-tile.maibot-button > span:last-child {
         min-width: 0;
+        overflow-wrap: anywhere;
       }
       .nav .maibot-button:hover:not(:disabled),
       .nav .maibot-button:active,
@@ -1418,8 +1428,16 @@
       .editor-actions {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 16px;
         flex-shrink: 0;
+      }
+      .panel-head > :first-child {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .panel-head .flex-wrap > div {
+        min-width: 0;
       }
       .operation-error {
         margin-top: 18px;
@@ -1441,9 +1459,11 @@
           justify-content: space-between;
         }
       }
-      .object-dialog {
-        width: min(960px, 94vw);
-        max-height: calc(100dvh - 24px);
+      #dialog.library-dialog {
+        width: 760px;
+      }
+      #dialog.object-dialog {
+        width: 960px;
       }
       .editor-intro {
         margin-bottom: 20px;
@@ -1473,15 +1493,9 @@
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
-        padding-bottom: 16px;
         border-bottom: 1px solid var(--rule);
         margin-bottom: 20px;
-        position: sticky;
-        top: -25px;
-        margin-inline: -25px;
-        padding: 12px 25px;
-        background: var(--panel);
-        z-index: 4;
+        padding-bottom: 12px;
       }
       .voice-categories [aria-selected="true"] {
         background: var(--green);
@@ -1532,6 +1546,10 @@
       }
       .voice-saved[aria-current="true"] {
         background: var(--green);
+      }
+      .voice-saved[aria-current="true"],
+      .voice-saved[aria-current="true"] small {
+        color: var(--green-ink);
       }
       .voice-form {
         min-width: 0;
@@ -1587,28 +1605,14 @@
       .meter:first-child {
         box-shadow: none;
       }
-      .object-dialog .dialog-head {
-        position: sticky;
-        top: 0;
-        z-index: 3;
-        background: var(--panel);
-      }
-      .object-dialog .dialog-head h2 {
-        overflow-wrap: anywhere;
-        min-width: 0;
-      }
       .object-dialog-footer {
-        position: sticky;
-        bottom: 0;
-        background: var(--panel);
-        padding: 16px 0 8px;
+        padding-top: 16px;
         margin-top: 24px;
         border-top: 1px solid var(--line);
         display: flex;
         gap: 10px;
         justify-content: flex-end;
         flex-wrap: wrap;
-        z-index: 2;
       }
       .object-dialog .model-options {
         margin-top: 20px;
@@ -1625,15 +1629,15 @@
         overflow-wrap: anywhere;
       }
       @media (max-width: 700px) {
-        .voice-categories {
-          top: -16px;
-          margin-inline: -16px;
-          padding-inline: 16px;
-        }
         .voice-workspace-top {
           align-items: stretch;
           flex-direction: column;
           gap: 8px;
+          margin-bottom: 12px;
+        }
+        .voice-categories,
+        #voice-category-panel > .editor-intro {
+          margin-bottom: 12px;
         }
         .voice-workspace-grid {
           grid-template-columns: minmax(0, 1fr);
@@ -1650,6 +1654,19 @@
           overflow-x: auto;
           max-height: none;
         }
+        .voice-sidebar:has(.voice-sidebar-list > .muted:only-child) {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+        }
+        .voice-sidebar:has(.voice-sidebar-list > .muted:only-child) .section-title {
+          margin: 0;
+        }
+        .voice-sidebar-list:has(> .muted:only-child) {
+          display: none;
+        }
         .voice-saved-row {
           flex: 0 0 180px;
         }
@@ -1657,29 +1674,13 @@
           grid-template-columns: minmax(0, 1fr);
         }
         .voice-categories .key {
-          min-height: 42px;
-          flex: 1 1 110px;
+          flex: 1 1 100px;
         }
         .model-row-actions {
           width: 100%;
         }
         .model-row-actions .key {
           flex: 1;
-        }
-        .object-dialog {
-          width: calc(100vw - 16px);
-          max-width: calc(100vw - 16px);
-          max-height: calc(100dvh - 16px);
-        }
-        .object-dialog .dialog-head {
-          padding: 16px;
-          gap: 12px;
-        }
-        .object-dialog .dialog-head h2 {
-          font-size: 19px;
-        }
-        .object-dialog .dialog-body {
-          padding: 16px;
         }
         .object-dialog .form-grid {
           grid-template-columns: minmax(0, 1fr);
@@ -1688,29 +1689,10 @@
           grid-template-columns: minmax(0, 1fr);
         }
         .object-dialog-footer {
-          bottom: 0;
           justify-content: stretch;
-          padding-bottom: max(8px, env(safe-area-inset-bottom));
         }
         .object-dialog-footer .key {
-          flex: 1 1 130px;
-          min-height: 44px;
-        }
-        .model-row .key,
-        .voice-item .key {
-          min-height: 44px;
-        }
-        .library-dialog[open] {
-          width: calc(100vw - 16px);
-          height: calc(100dvh - 16px);
-          max-height: calc(100dvh - 16px);
-        }
-        .library-dialog .dialog-head,
-        .library-dialog .dialog-body {
-          padding: 14px;
-        }
-        .library-dialog .key {
-          min-height: 42px;
+          flex: 1 1 auto;
         }
         .route-slot,
         .route-controls {
@@ -1721,6 +1703,24 @@
         }
         .input-row .input {
           flex: 1 1 180px;
+        }
+      }
+      @media (max-width: 700px), (pointer: coarse) {
+        /* 宿主的移动底栏位于 iframe 外部，给最后一项操作留出滚动距离。 */
+        .dialog-body {
+          padding-bottom: calc(88px + env(safe-area-inset-bottom));
+          scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom));
+        }
+        .maibot-button.key,
+        .nav .key {
+          min-height: 44px;
+        }
+        .maibot-input.input {
+          min-height: 44px;
+          font-size: 16px;
+        }
+        .credential-input > .credential-clear {
+          min-height: 36px;
         }
       }
     </style>
@@ -1772,34 +1772,42 @@
         <button
           class="maibot-button key"
           role="tab"
+          id="tab-providers"
           data-tab="providers"
+          aria-controls="view"
           aria-selected="true"
         >
           <span class="num">01</span>服务商</button
         ><button
           class="maibot-button key"
           role="tab"
+          id="tab-routing"
           data-tab="routing"
+          aria-controls="view"
           aria-selected="false"
         >
           <span class="num">02</span>语音路由</button
         ><button
           class="maibot-button key"
           role="tab"
+          id="tab-features"
           data-tab="features"
+          aria-controls="view"
           aria-selected="false"
         >
           <span class="num">03</span>回复行为</button
         ><button
           class="maibot-button key"
           role="tab"
+          id="tab-preview"
           data-tab="preview"
+          aria-controls="view"
           aria-selected="false"
         >
           <span class="num">04</span>试听工作台
         </button>
       </nav>
-      <main id="view" class="view" role="tabpanel" aria-live="off">
+      <main id="view" class="view" role="tabpanel" aria-labelledby="tab-providers">
         <div class="loading">
           <span class="spinner" style="display: inline-block"></span>
           <p>正在读取语音工作台…</p>
@@ -1815,28 +1823,13 @@
     </div>
     <div
       id="task-status"
-      class="hidden"
-      role="status"
-      aria-live="polite"
-      style="
-        position: sticky;
-        bottom: 12px;
-        max-width: 500px;
-        margin: 20px auto 0;
-        padding: 12px 18px;
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        box-shadow: var(--shadow);
-      "
+      class="task-status hidden"
     >
-      <div class="flex-wrap">
-        <span class="spinner"></span
-        ><span style="flex: 1; font-size: 12px">平台任务正在执行…</span
-        ><button class="maibot-button key small" data-action="cancel">
-          取消任务
-        </button>
-      </div>
+      <span class="spinner" aria-hidden="true"></span>
+      <span role="status">平台任务正在执行…</span>
+      <button class="maibot-button key small" data-action="cancel">
+        取消任务
+      </button>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <dialog id="dialog" aria-labelledby="dialog-title">
@@ -1846,6 +1839,7 @@
           class="maibot-button key small"
           data-action="close-dialog"
           aria-label="关闭对话框"
+          autofocus
         >
           ✕
         </button>
@@ -1867,6 +1861,7 @@
                 "'": "&#39;",
               })[c],
           );
+      const choicesPerPage = 12;
       const state = {
         config: null,
         savedConfig: null,
@@ -1882,6 +1877,7 @@
         saving: false,
         loading: false,
         job: "",
+        cancelling: false,
         busy: false,
         models: {},
         remoteVoices: {},
@@ -2030,6 +2026,10 @@
       }
       function updateSave() {
         $("#task-status").classList.toggle("hidden", !state.busy);
+        document.querySelectorAll('[data-action="cancel"]').forEach((button) => {
+          button.disabled = !state.job || state.cancelling;
+          button.textContent = state.cancelling ? "正在取消…" : "取消任务";
+        });
         const el = $("#dirty");
         el.textContent = state.saving
           ? "正在保存…"
@@ -2101,7 +2101,7 @@
       function render() {
         if (!state.config) return;
         renderSummary();
-        document.querySelectorAll("[data-tab]").forEach((el) => {
+        document.querySelectorAll(".nav [role='tab']").forEach((el) => {
           el.setAttribute(
             "aria-selected",
             String(el.dataset.tab === state.tab),
@@ -2109,6 +2109,7 @@
           el.tabIndex = el.dataset.tab === state.tab ? 0 : -1;
         });
         const v = $("#view");
+        v.setAttribute("aria-labelledby", "tab-" + state.tab);
         v.classList.remove("view");
         void v.offsetWidth;
         v.classList.add("view");
@@ -2191,8 +2192,37 @@
         );
       }
       function providersView() {
-        const p = current();
-        return `<div class="workspace"><aside><div class="maibot-card panel"><div class="list-top"><span class="overline">PROVIDERS</span><span class="maibot-badge badge">${state.config.profiles.length} / 20</span></div><div class="provider-list">${state.config.profiles.map((p) => `<button class="maibot-button provider-btn ${p.enabled ? "" : "off"}" data-provider="${h(p.id)}" aria-current="${p.id === state.selected}">${mark(p)}<span><strong>${h(p.name)}</strong><small>${h(!p.enabled ? "已停用" : preset(p).tag)}</small></span></button>`).join("")}</div><div class="list-bottom"><button class="maibot-button key" data-action="add">＋ 添加服务商</button></div></div><p class="helper">同一平台可添加多个配置，分别使用不同模型、账号或音色。</p></aside>${p ? editor(p) : `<section class="maibot-card panel empty"><div class="empty-symbol" aria-hidden="true">∿</div><h2>给麦麦接上声音</h2><p>选择一个语音平台，填入接口和密钥。模型、音色与备选服务，都可以在这里管理。</p><button class="maibot-button maibot-button-primary key primary" data-action="add">添加第一个服务商 ↗</button></section>`}</div>`;
+        const p = current(),
+          profiles = state.config.profiles;
+        const providerPicker = p
+          ? `<div class="field provider-picker">
+              <label for="provider-picker">选择服务商</label>
+              <select id="provider-picker" class="maibot-input input" ${state.busy ? "disabled" : ""}>
+                ${profiles.map((item) => `<option value="${h(item.id)}" ${item.id === p.id ? "selected" : ""}>${h(item.name)}${item.enabled ? "" : "（已停用）"}</option>`).join("")}
+              </select>
+            </div>`
+          : "";
+        const providerButtons = profiles.map((item) => `
+          <button class="maibot-button provider-btn ${item.enabled ? "" : "off"}" data-provider="${h(item.id)}" aria-current="${item.id === state.selected}" title="${h(item.name)}">
+            ${mark(item)}<span><strong>${h(item.name)}</strong><small>${h(item.enabled ? preset(item).tag : "已停用")}</small></span>
+          </button>`).join("");
+        return `<div class="workspace">
+          <aside>
+            <div class="maibot-card panel">
+              <div class="list-top"><span class="overline">PROVIDERS</span><span class="maibot-badge badge">${profiles.length} / 20</span></div>
+              ${providerPicker}
+              <div class="provider-list">${providerButtons}</div>
+              <div class="list-bottom"><button class="maibot-button key" data-action="add">＋ 添加服务商</button></div>
+            </div>
+            <p class="helper">同一平台可添加多个配置，分别使用不同模型、账号或音色。</p>
+          </aside>
+          ${p ? editor(p) : `<section class="maibot-card panel empty">
+            <div class="empty-symbol" aria-hidden="true">∿</div>
+            <h2>给麦麦接上声音</h2>
+            <p>选择一个语音平台，填入接口和密钥。模型、音色与备选服务，都可以在这里管理。</p>
+            <button class="maibot-button maibot-button-primary key primary" data-action="add">添加第一个服务商 ↗</button>
+          </section>`}
+        </div>`;
       }
       function editor(p) {
         return `<section class="maibot-card panel"><div class="panel-head"><div class="flex-wrap">${mark(p)}<div><h2>${h(p.name)}</h2><p>${h(preset(p).name)} / ${h(preset(p).tag)}</p></div></div><div class="editor-actions"><label class="switch-label"><span>${p.enabled ? "已启用" : "已停用"}</span><input class="switch" type="checkbox" data-field="enabled" aria-label="启用此服务商" ${p.enabled ? "checked" : ""}></label><button class="maibot-button maibot-button-primary key small" data-action="save-profile" data-save="profile">保存此平台</button></div></div><div class="panel-body">${connectionForm(p)}<details class="advanced-settings"><summary>网络代理 · 当前服务商实例</summary>${networkForm(p)}</details><details class="advanced-settings"><summary>高级设置 · 自定义辅助接口</summary><div>${platformInterfacesForm(p)}</div></details></div><div class="editor-foot"><button class="maibot-button key small danger flat" data-action="delete">删除服务商</button><button class="maibot-button key small" data-tab="routing">前往整体路由 ↗</button></div></section>`;
@@ -3226,7 +3256,7 @@
           model: p.model,
         }));
       }
-      function renderWorkspacePresets() {
+      function renderWorkspacePresets(refreshRows = true) {
         const p = state.modelEditor.profile,
           panel = state.voiceWorkspace;
         panel.selections[p.model] ||= new Set(
@@ -3239,17 +3269,19 @@
           filtered = presetEntries().filter((v) =>
             `${v.id} ${v.name}`.toLocaleLowerCase().includes(q),
           ),
-          pages = Math.max(1, Math.ceil(filtered.length / 30));
+          pages = Math.max(1, Math.ceil(filtered.length / choicesPerPage));
         panel.page = Math.min(panel.page || 0, pages - 1);
-        $("#voice-presets").innerHTML =
-          filtered
-            .slice(panel.page * 30, (panel.page + 1) * 30)
-            .map(
-              (v) =>
-                `<label class="choice-row"><input type="checkbox" data-preset-voice="${h(v.id)}" ${selected.has(v.id) ? "checked" : ""}><span><strong>${h(v.name)}</strong>${v.name !== v.id ? `<small>${h(v.id)}</small>` : ""}</span></label>`,
-            )
-            .join("") ||
-          `<p class="choice-empty">${panel.category === "account" ? "点击同步账号音色，选择平台上已有的声音。" : "此模型可在“自定义音色”中填写平台音色 ID。"}</p>`;
+        if (refreshRows) {
+          $("#voice-presets").innerHTML =
+            filtered
+              .slice(panel.page * choicesPerPage, (panel.page + 1) * choicesPerPage)
+              .map(
+                (v) =>
+                  `<label class="choice-row"><input type="checkbox" data-preset-voice="${h(v.id)}" ${selected.has(v.id) ? "checked" : ""}><span><strong>${h(v.name)}</strong>${v.name !== v.id ? `<small>${h(v.id)}</small>` : ""}</span></label>`,
+              )
+              .join("") ||
+            `<p class="choice-empty">${panel.category === "account" ? "点击同步账号音色，选择平台上已有的声音。" : "此模型可在“自定义音色”中填写平台音色 ID。"}</p>`;
+        }
         $("#voice-preset-pages").innerHTML =
           `<small role="status">已选 ${selected.size} 项 · 筛选 ${filtered.length} 项 · 第 ${panel.page + 1} / ${pages} 页</small><div class="flex-wrap"><button class="maibot-button key small" data-action="preset-prev" ${panel.page === 0 ? "disabled" : ""}>上一页</button><button class="maibot-button key small" data-action="preset-next" ${panel.page + 1 === pages ? "disabled" : ""}>下一页</button></div>`;
       }
@@ -3505,7 +3537,7 @@
       function setDialogBusy(busy, text = "") {
         document
           .querySelectorAll(
-            "#dialog input,#dialog select,#dialog textarea,#dialog button",
+            ".dialog-head button, #dialog-body :is(input, select, textarea, button)",
           )
           .forEach((el) => {
             if (busy) {
@@ -3517,7 +3549,7 @@
             }
           });
         const status = $("#voice-save-status");
-        if (status && text) status.textContent = text;
+        if (status) status.textContent = busy ? text : state.voiceWorkspace.status;
       }
       async function persistVoiceWorkspace() {
         const editor = state.modelEditor,
@@ -4051,11 +4083,11 @@
         const picker = state.picker;
         if (!picker) return;
         const filtered = filteredChoices(),
-          pages = Math.max(1, Math.ceil(filtered.length / 30));
+          pages = Math.max(1, Math.ceil(filtered.length / choicesPerPage));
         picker.page = Math.min(picker.page, pages - 1);
         $("#choice-list").innerHTML =
           filtered
-            .slice(picker.page * 30, (picker.page + 1) * 30)
+            .slice(picker.page * choicesPerPage, (picker.page + 1) * choicesPerPage)
             .map(
               (item) =>
                 `<label class="choice-row"><input type="${["files", "routes"].includes(picker.kind) ? "radio" : "checkbox"}" name="library-choice" data-choice="${item.index}" ${picker.selected.has(item.id) ? "checked" : ""}><span><strong>${h(item.name || item.id)}</strong>${item.name !== item.id || item.detail ? `<small>${h(item.id)}${item.detail ? " · " + h(item.detail) : ""}</small>` : ""}</span></label>`,
@@ -4643,20 +4675,36 @@
         }</div></section></aside></div>`;
       }
       function dialog(title, body) {
-        const wasOpen = $("#dialog").open;
-        $("#dialog").classList.toggle("library-dialog", Boolean(state.picker));
-        $("#dialog").classList.toggle(
+        const modal = $("#dialog"),
+          content = $("#dialog-body"),
+          heading = $("#dialog-title"),
+          sameView = modal.open && heading.textContent === title,
+          scroll = content.scrollTop,
+          focusedId = content.contains(document.activeElement) && document.activeElement.id;
+        modal.classList.toggle("library-dialog", Boolean(state.picker));
+        modal.classList.toggle(
           "object-dialog",
           Boolean(state.modelEditor) && !state.picker,
         );
-        $("#dialog-title").textContent = title;
-        $("#dialog-body").innerHTML = body;
-        document.documentElement.classList.add("modal-open");
-        if (!$("#dialog").open) $("#dialog").showModal();
-        if (!wasOpen) $("#dialog-body").scrollTop = 0;
+        heading.textContent = title;
+        content.innerHTML = body;
+        if (!modal.open) {
+          // 原生模态框会禁用外部页面，任务取消和反馈需要放在框内。
+          modal.insertBefore($("#task-status"), content);
+          modal.append($("#toast"));
+          document.documentElement.classList.add("modal-open");
+          modal.showModal();
+        } else if (!sameView) {
+          modal.querySelector(".dialog-head button").focus();
+        }
+        content.scrollTop = sameView ? scroll : 0;
+        if (sameView && focusedId)
+          document.getElementById(focusedId)?.focus({ preventScroll: true });
       }
       function closeDialog(value = false) {
-        $("#dialog").close();
+        const modal = $("#dialog");
+        modal.close();
+        modal.before($("#task-status"), $("#toast"));
         document.documentElement.classList.remove("modal-open");
         if (dialogResolve) {
           dialogResolve(value);
@@ -4890,6 +4938,8 @@
             throw Error("当前设置过大，请减少音色收藏后重试。");
           const started = await maibot.action("launch", launchArgs);
           state.job = started.job_id;
+          updateSave();
+          $("#dialog #task-status button")?.focus({ preventScroll: true });
           launched = true;
           let result;
           while (true) {
@@ -4933,9 +4983,8 @@
         } finally {
           if (launched && ["clone", "design", "update_voice", "delete_voice", "clone_status"].includes(operation))
             state.remoteVoices = {};
-          state.busy = false;
-          setDialogBusy(false);
           state.job = "";
+          updateSave();
           if (launched) {
             try {
               const fresh = await maibot.query("state");
@@ -4945,6 +4994,9 @@
               notify("任务结束，但刷新状态失败：" + e.message, true);
             }
           }
+          state.cancelling = false;
+          state.busy = false;
+          setDialogBusy(false);
           render();
           syncSelects();
         }
@@ -4997,10 +5049,12 @@
         "preset-prev": () => {
           state.voiceWorkspace.page--;
           renderWorkspacePresets();
+          $("#voice-presets input")?.focus();
         },
         "preset-next": () => {
           state.voiceWorkspace.page++;
           renderWorkspacePresets();
+          $("#voice-presets input")?.focus();
         },
         "save-workspace-voice": () => saveWorkspaceVoice(),
         "query-clone-status": () => queryCloneStatus(),
@@ -5071,6 +5125,7 @@
           state.objectAudio = state.voiceEditor ? "voice" : "model";
           if (state.voiceWorkspace) showVoiceWorkspace();
           else showModelDialog();
+          $("#dialog .dialog-audio")?.scrollIntoView({ block: "nearest" });
         },
         "import-reference": () => {
           state.dialogKind = "reference-import";
@@ -5259,10 +5314,12 @@
         "choice-prev": () => {
           state.picker.page--;
           renderChoices();
+          $("#choice-list input")?.focus();
         },
         "choice-next": () => {
           state.picker.page++;
           renderChoices();
+          $("#choice-list input")?.focus();
         },
         "choice-cancel": () => finishPicker(),
         "choice-apply": () => applyChoices(),
@@ -5337,7 +5394,18 @@
           }
         },
         cancel: async () => {
-          if (state.job) await maibot.action("cancel", { job_id: state.job });
+          const jobId = state.job;
+          if (!jobId || state.cancelling) return;
+          state.cancelling = true;
+          updateSave();
+          try {
+            await maibot.action("cancel", { job_id: jobId });
+          } catch (error) {
+            if (state.job !== jobId) return;
+            state.cancelling = false;
+            updateSave();
+            throw error;
+          }
         },
       };
       document.addEventListener("click", async (e) => {
@@ -5421,13 +5489,14 @@
           else if (b.dataset.tab) {
             state.tab = b.dataset.tab;
             render();
-            syncSelects();
+            if (!b.closest(".nav")) $("#tab-" + state.tab).focus();
           } else if (b.dataset.subtab) {
             state.subtab = b.dataset.subtab;
             render();
           } else if (b.dataset.provider) {
             state.selected = b.dataset.provider;
             render();
+            $('[data-provider][aria-current="true"]').focus({ preventScroll: true });
           } else if (b.dataset.addKind) addProvider(b.dataset.addKind);
           else if (b.dataset.useVoice !== undefined) {
             setModelVoice(
@@ -5812,13 +5881,19 @@
       document.addEventListener("change", (e) => {
         const el = e.target;
         if (state.busy || state.saving) return;
+        if (el.id === "provider-picker") {
+          state.selected = el.value;
+          render();
+          $("#provider-picker").focus({ preventScroll: true });
+          return;
+        }
         if (el.dataset.presetVoice !== undefined) {
           const set =
             state.voiceWorkspace.selections[state.modelEditor.profile.model];
           if (el.checked) set.add(el.dataset.presetVoice);
           else set.delete(el.dataset.presetVoice);
           markVoiceEdited();
-          renderWorkspacePresets();
+          renderWorkspacePresets(false);
         }
         if (el.matches("[data-workspace-model]"))
           selectVoiceCategory(state.voiceWorkspace.category, el.value);
@@ -5910,10 +5985,10 @@
           $("#voice-tab-" + choices[next][0]).focus({ preventScroll: true });
           return;
         }
-        const el = e.target.closest("[data-tab]");
+        const el = e.target.closest(".nav [role='tab']");
         if (el && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
           e.preventDefault();
-          const tabs = [...document.querySelectorAll("[data-tab]")];
+          const tabs = [...document.querySelectorAll(".nav [role='tab']")];
           let i = tabs.indexOf(el);
           i =
             e.key === "Home"
@@ -5929,25 +6004,8 @@
         }
       });
       $("#dialog").addEventListener("cancel", (event) => {
-        if (dialogResolve) {
-          event.preventDefault();
-          closeDialog(false);
-          return;
-        }
-        if (state.modelEditor || state.picker) {
-          event.preventDefault();
-          backFromDialog();
-          return;
-        }
-        if (state.picker) {
-          event.preventDefault();
-          finishPicker();
-          return;
-        }
-        if (dialogResolve) {
-          dialogResolve(false);
-          dialogResolve = null;
-        }
+        event.preventDefault();
+        if (!state.busy && !state.saving) backFromDialog();
       });
       window.addEventListener("beforeunload", (e) => {
         if (state.dirty || state.modelEditor?.changed) {
