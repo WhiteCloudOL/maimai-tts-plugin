@@ -27,6 +27,21 @@
 
 ---
 
+## 目录
+
+- [功能一览](#功能一览)
+- [支持平台](#支持平台)
+- [快速开始](#快速开始)
+- [模型与音色](#模型与音色)
+- [语音语调](#语音语调)
+- [本地参考录音](#本地参考录音)
+- [整体语音路由](#整体语音路由)
+- [聊天用法](#聊天用法)
+- [配置说明](#配置说明)
+- [数据与备份](#数据与备份)
+- [常见情况](#常见情况)
+- [各平台配置](#各平台配置)：[BreezeTTS](#breezetts-接入) · [OpenAI 与自定义接口](#openai-与自定义接口) · [阿里云](#阿里云模型参数) · [MiniMax](#minimax-官方平台) · [火山引擎](#火山引擎) · [小米 MiMo](#小米-mimo)
+
 ## 功能一览
 
 **WebUI 与聊天**：通过聊天命令或麦麦的语音工具发送语音，也可以开启概率语音，将整轮文字回复转换为语音。在工作台中选择服务商、模型和音色，输入文字即可合成试听并播放。
@@ -41,7 +56,7 @@
 
 **语速与语调**：在模型或音色中固定语速、情感和说话风格，也可以为支持语调控制的模型开启动态模式，让麦麦从允许列表中选择语调；插件校验语调标签后调用平台合成。
 
-工作台沿用 MaiBot 的千禧风格，提供侧栏入口、浅色与深色主题和过渡动画。PC 使用并列表单与资源列表，手机使用单列表单、可滚动弹窗和触控操作区。
+工作台沿用 MaiBot 的原生风格，提供侧栏入口、浅色与深色主题和过渡动画。PC 使用并列表单与资源列表，手机使用单列表单、可滚动弹窗和触控操作区。
 
 ## 支持平台
 
@@ -54,7 +69,7 @@
 | 阿里云_MiniMax | Speech 2.8 / 02、原生情感、快速复刻、账号音色 | 采用北京 DashScope BaseURL，复刻录音使用公网 URL |
 | MiniMax | 官方 Speech 2.8 / 2.6 / 02 / 01、HTTP / SSE / WebSocket、混合音色、录音复刻、声音设计 | 使用 MiniMax 官方 API Key，支持中国区与国际区地址 |
 | 硅基流动 | CosyVoice、MOSS、账号音色、动态参考录音 | 预设音色使用 `模型ID:音色`，如 `FunAudioLLM/CosyVoice2-0.5B:anna` |
-| 火山引擎 | 豆包语音、本地录音复刻、训练状态查询 | 选择鉴权方式、音色槽位与合成资源 |
+| 火山引擎 | 豆包语音、录音复刻、文字 / 图片音色设计、状态查询与平台试听、固定与动态语调 | [区分音色资源与模型效果版本](#火山引擎)；音色可单独绑定资源 |
 | 小米MiMo | 预设音色、音频克隆、文字设计 | 按音色模式填写参考录音或声音描述 |
 | GPT-SoVITS | API v2、参考录音与对应文字 | 填写同机录音路径或 GPT-SoVITS 服务端路径 |
 | OpenAI兼容服务 | OpenAI Speech、自定义 JSON / 表单 / GET、音频与链接响应 | 每个模型单独选择请求协议与字段格式 |
@@ -109,120 +124,7 @@
 
 ## 模型与音色
 
-### BreezeTTS 接入
-
-添加 **BreezeTTS**，在平台连接中选择 **本地API** 或 **Breeze 官方在线**，再填写对应的 BaseURL。
-
-| 接入方式 | 声音配置 | 常用参数 |
-| :--- | :--- | :--- |
-| 本地API | 在「参考音色」中保存录音路径与准确的文字稿；「声音设计」使用文字描述创建声音 | CFG 指令强度、随机种子、默认声音来源、风格与语调 |
-| 官方在线 | 同步公共与个人音色，或上传录音创建克隆、通过描述设计音色，保存后使用音色 ID | 模型、合成语言、语速、音量、说话人相似度、同步 / 流式 / 后台任务 |
-
-#### 本地API · 从启动到第一次语音
-
-**① 启动 Breeze 服务**
-
-先按 [Breeze 开源项目说明](https://github.com/breezeblue-ai/breeze-tts#-streaming-api) 准备运行环境和模型权重。对于安装在 `C:\Apps\breeze-tts`、模型位于 `checkpoints\breeze-tts-2` 的服务，在 PowerShell 中执行：
-
-```powershell
-Set-Location C:\Apps\breeze-tts
-& .\.venv\Scripts\python.exe -m breeze_infer.api .\checkpoints\breeze-tts-2 --host 127.0.0.1 --port 7860
-```
-
-保持此服务运行，再打开麦麦的语音工作台。使用其他 Python 环境时，将命令中的解释器替换为已安装 Breeze 依赖的 Python；模型路径填写实际权重目录。
-
-**② 配置平台连接**
-
-进入 **服务商 → 添加服务商 → BreezeTTS**，填写：
-
-| 字段 | 同机示例 | 说明 |
-| :--- | :--- | :--- |
-| 配置名称 | `BreezeTTS_本地` | 用于整体路由和聊天命令 |
-| Breeze 接入方式 | **本地API** | 适用于开源 Breeze 服务及采用相同协议的特化服务 |
-| BaseURL | `http://127.0.0.1:7860/v1` | 插件自动生成 `/audio/speech` 请求路径 |
-| API Key | 留空 | 默认开源服务使用匿名请求；启用鉴权的服务填写对应密钥 |
-
-点击启用开关旁的 **保存此平台**。例如上述地址实际请求 `http://127.0.0.1:7860/v1/audio/speech`。部署在另一台机器时，将 `127.0.0.1` 换成 Breeze 机器的地址，同时为服务设置可访问的监听地址与端口。`127.0.0.1` 始终指 MaiBot 所在的运行环境；容器部署时请填写容器能访问的 Breeze 服务地址。
-
-**③ 添加模型**
-
-点击 **选择预设或手动添加模型**，选择 `breeze-tts-2`，再点击 **应用所选项**。打开该模型的 **模型设置**，第一次使用建议保留：
-
-| 设置 | 建议值 |
-| :--- | :--- |
-| 输出格式 | `wav` |
-| 语调模式 | **关闭语调控制** |
-| CFG 指令强度 | `1` |
-| 随机种子 | `42` |
-| 模型默认声音来源 | **参考录音 · 原声复刻 / 语气引导** |
-
-本地服务使用启动时加载的模型权重，工作台中的模型 ID 用于组织配置与路由。接入多个模型实例时，可在各模型的 **BaseURL** 中填写对应实例地址。点击 **保存模型** 保留设置。
-
-**④ 保存参考音色**
-
-打开该模型的 **音色与克隆 → 参考音色 → 新建音色**。填写音色名称（例如 `巫祝参考音色`），选择 **麦麦本地文件**，再填写参考音频路径与完整文字稿；收藏 ID 由工作台自动生成。
-
-推荐将 MP3 / WAV 录音放入插件数据目录的 `reference_audio/` 文件夹。相对路径以插件数据目录为基准，例如：
-
-```text
-reference_audio/sample.wav
-```
-
-这对应 MaiBot 安装目录下的：
-
-```text
-data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
-```
-
-也可填写绝对路径，或通过路径旁的目录选择按钮选取录音。「本地文件」指 **运行 MaiBot 的机器上的文件**；插件读取后随请求发送给 Breeze，适用于同机服务和远程服务。音频来源也支持公开音频链接。
-
-参考录音与文字稿可采用如下通用示例：
-
-```text
-你好，我是麦麦，很高兴和你聊天。
-```
-
-录音宜清晰、单人讲话、背景安静；文字稿覆盖录音中说出的全部内容，重复语句也按录音填写。点击 **保存音色**，每个收藏音色会分别保留参考录音、文字稿和语气设置。也可在 **模型设置 → 平台专属参数** 中填写模型默认参考录音，供沿用模型声音的路由使用。
-
-**⑤ 试听并加入路由**
-
-点击 **试听音色**，或进入 **试听工作台**，选择 `BreezeTTS_本地/breeze-tts-2` 和刚保存的音色，输入一句简短文字后合成。首次请求包含模型预热，等待时间通常较长。
-
-听到声音后，进入 **语音路由**，将此 Provider/Model 设为首选并选择音色，点击顶部 **保存全部设置**。聊天中可用 `/mmtts model` 查看模型列表，使用 `/mmtts model BreezeTTS_本地/breeze-tts-2` 切换模型；音色以整体路由中保存的选择为准。
-
-本地 API 返回的单声道 PCM 会自动封装为网页可播放的 WAV，聊天语音按发送设置转换为 SILK。同一 Breeze 实例的插件请求按顺序处理。
-
-#### 本地API · 语气与声音设计
-
-| 使用方式 | 配置方法 | CFG 建议 |
-| :--- | :--- | :--- |
-| 原声复刻 | 参考录音 + 完整文字稿，语调模式选择关闭，风格留空 | **1** |
-| 固定语调 | 参考录音 + 文字稿，语调模式选择固定，选择温柔、开心等语气 | 从 **1** 开始，需要更强指令效果时选 **4** |
-| 动态语调 | 参考录音 + 文字稿，语调模式选择动态，并设置允许语调列表 | 从 **1** 开始，确认风格或语调指令后可选 **4** |
-| 声音设计 | 进入「声音设计」，填写声音描述，例如「年轻女性，声音清晰温柔，语速舒缓」 | **4** |
-
-纯复刻与模型原生声音使用 **CFG=1**；风格或语调指令为更高 CFG 提供引导。固定语调直接作用于接口。动态语调由麦麦选择允许列表中的语气，插件校验并解析标签后调用合成；标签会从朗读正文中移除。语调可在模型统一设置，也可为某个音色单独保存。
-
-| 遇到的情况 | 调整方法 |
-| :--- | :--- |
-| 连接服务失败 | 确认 Breeze 进程持续运行，核对 BaseURL、监听端口与网络可达性 |
-| 提示参考录音或文字稿必填 | 在当前收藏音色中同时填写录音路径和完整文字稿，或补齐模型默认参考录音 |
-| 提示纯复刻使用 CFG=1 | 将 CFG 调整为 `1`，或配置明确的风格与语调指令后使用更高值 |
-| 声音与预期有差别 | 检查当前路由的模型和音色，核对录音文字稿，使用清晰的参考录音后再次试听 |
-
-#### 官方在线 · 账号音色与鉴权
-
-选择 **Breeze 官方在线**，BaseURL 填写 `https://api.breeze.blue/v1`，API Key 填写有效的 Breeze 开发者密钥。本地API 的 API Key 也支持按需填写；填写后统一发送：
-
-```http
-Authorization: Bearer 你的密钥
-```
-
-官方在线音色克隆使用至少 **3 秒**、最多 **5 MB** 的录音，由在线服务生成文字转写；声音设计填写 **3–500 字符**的描述与试听文本。选择音色语言后，创建结果自动保存为账号音色。在线模型包括 `breeze-tts-2` 与 `breeze-tts-2-multilingual`，也可从账号模型列表选择。
-
-在线合成默认使用账号的 **1000 字符**上限；获得更高额度的账号可在模型参数中调整至 **2000**。固定语调直接作用于接口；动态语调沿用工作台的标签与允许列表设置。
-
-官方说明：[开源服务](https://github.com/breezeblue-ai/breeze-tts#-streaming-api) · [在线接口](https://docs.breezeblue.ai/api-reference/introduction) · [音色与鉴权](https://docs.breezeblue.ai/authentication)
+模型与音色的通用操作见本节；各平台的接入步骤与专属参数集中在文末的 [各平台配置](#各平台配置)。
 
 ### 模型库
 
@@ -240,55 +142,6 @@ tts-1-hd | 高质量朗读
 模型列表中可查看音色数量，点击 **模型设置** 打开参数窗口，设置显示名称、模型 ID、BaseURL、输出格式、语速、风格和平台专属参数，点击 **保存模型** 即可保留。模型可沿用平台地址，也可使用独立地址。平台页负责连接与资源管理，整体路由负责首选与备选。
 
 「从模型链接识别」支持硅基流动模型详情页、Hugging Face、ModelScope 和完整合成接口链接。模型详情页用于提取模型 ID；实际合成地址由服务提供方提供。
-
-### OpenAI 与自定义接口
-
-在 **OpenAI兼容服务 → 模型设置 → 请求协议** 中选择接口格式，每个模型独立保存。
-
-| 协议 | 配置方式 |
-| :--- | :--- |
-| OpenAI 官方 Speech | 填写 BaseURL、模型与音色，使用官方参数格式 |
-| 自定义 HTTP 格式 | 选择请求模板，调整路径、字段、鉴权和音频响应格式 |
-
-**OpenAI 官方 Speech** 提供 13 个预设音色、音色 ID 对象、MP3 / WAV / Opus / AAC / FLAC / PCM、0.25–4 倍语速、模型风格与固定 / 动态语调。`tts-1`、`tts-1-hd` 使用各自的预设音色和音频流；`gpt-4o-mini-tts` 系列还可设置风格指令与 SSE 返回。高级参数中可填写 Organization、Project。具有相应权限的兼容服务可按 OpenAI 音色接口创建和删除账号音色，克隆时填写已有授权记录 ID。
-
-**自定义 HTTP 格式** 提供 Speech JSON、Chat Audio JSON、文本字段 JSON、GET 参数与表单模板。BaseURL 例如 `https://example.com/v1`，合成路径例如 `audio/speech`，合成时使用 `https://example.com/v1/audio/speech`。
-
-请求内容可按服务商格式填写，例如：
-
-```json
-{
-  "model": "{{model}}",
-  "text": "{{text}}",
-  "speaker": "{{voice_id}}",
-  "speed": "{{speed}}",
-  "style": "{{instructions}}"
-}
-```
-
-| 可用变量 | 内容 |
-| :--- | :--- |
-| `{{text}}`、`{{model}}` | 朗读正文、所选模型 ID |
-| `{{voice}}`、`{{voice_id}}` | 音色值或音色 ID 对象、音色 ID 字符串 |
-| `{{speed}}`、`{{response_format}}`、`{{sample_rate}}` | 语速、输出格式、PCM 采样率 |
-| `{{instructions}}` | 合并后的风格与语调指令 |
-| `{{api_key}}` | 平台中保存的 API Key |
-| `{{reference_audio}}`、`{{reference_base64}}` | 参考录音的 Data URI、Base64 内容 |
-| `{{reference_url}}`、`{{reference_text}}` | 参考录音链接、录音文字 |
-
-单独占据字段值的变量会保留对应类型，例如 `"{{speed}}"` 会成为数字。JSON 可使用嵌套对象与数组；GET 和表单采用单层字段。鉴权可选择 Bearer、自定义请求头或开放接口；API Key 填在平台密钥框，请求模板与请求头通过 `{{api_key}}` 引用。风格与语调通过请求内容中的 `{{instructions}}` 传递。
-
-| 响应类型 | 配置示例 |
-| :--- | :--- |
-| 二进制音频 | 直接接收音频流 |
-| JSON Base64 / Hex / URL | 音频字段填写 `/data/audio` |
-| Chat Audio JSON | 音频字段填写 `/choices/0/message/audio/data` |
-| 纯文本 URL | 响应正文作为音频下载链接 |
-| SSE Base64 | 分别填写音频事件、完成事件、事件类型字段和音频字段 |
-
-响应字段使用 **JSON Pointer**：`/data/audio` 表示 `data` 中的 `audio`，`/choices/0` 表示 `choices` 中的第一项，留空表示整个响应。业务状态可配置字段与成功值，例如 `/code` 对应 `[0, 200]`；数字 `0` 和字符串 `"0"` 分别匹配。错误字段、模型列表和音色列表也可按服务商格式设置。接口能力与实际音色权限以对应服务商说明为准。
-
-官方参考：[Speech 参数](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) · [音色与合成指南](https://developers.openai.com/api/docs/guides/text-to-speech)
 
 ### 音色收藏
 
@@ -351,76 +204,12 @@ OpenAI 自定义音色可勾选 **使用 OpenAI 自定义音色对象（voice.id
 | 硅基流动复刻 | 打开音色克隆 → 选择创建账号音色或动态参考录音 → 填写录音及文字 → 保存 |
 | OpenAI 克隆 | 开通自定义音色权限 → 填写已有授权记录 ID（consent ID）→ 选择本地录音或公开 URL → 创建并保存 |
 | 火山引擎复刻 | 选择预付费槽位或后付费音色 → 填写目标音色 ID、录音语言与复刻资源 → 选择录音并提交 → 查询训练状态 |
+| 火山引擎设计 | 填写已购买槽位、文字描述或参考图片、试听文本 → 设计并保存 → 播放平台试听 |
 | MiMo 音频克隆 | 打开音色克隆 → 配置参考录音 → 保存音色；克隆模型会一起加入平台 |
 | MiMo 文字设计 | 打开声音设计 → 描述年龄、音色、口音与说话风格 → 试听并保存 |
 | GPT-SoVITS | 配置参考录音、录音文字与语言；可收藏多段录音并在整体路由选择声音 |
 
 阿里云 Qwen-Audio-TTS、CosyVoice 的克隆与设计音色均绑定创建时的目标模型、地区；音色前缀使用 1–10 位英文字母或数字。硅基流动的动态参考录音与账号音色分别保存。MiMo 设计模式可选择优化播报文本。
-
-阿里云声音设计支持 1–500 字符的声音描述，以及 15–200 字符的预览文本，预览语言可选择中文或英文。创建完成后，工作台直接展示平台返回的 WAV 试听音频，声音描述和预览文字随每个音色分别保存。克隆与设计音色会显示「审核中 / 审核通过 / 审核失败」，点击 **查询音色状态** 更新结果，审核通过后即可用于合成。
-
-已收藏的阿里云账号音色可查询状态、更新克隆录音或删除云端音色。列表中的 **×** 用于移出本地收藏；**删除云端音色** 会显示确认窗口，并同步处理平台账号与本地收藏。整体路由正在使用的音色可先切换路由再管理。
-
-百炼 MiniMax 复刻录音使用公网 MP3 / M4A / WAV 链接，时长 10 秒至 5 分钟，文件最多 20 MB。自定义音色 ID 长度为 8–256 位，以英文字母开头、字母或数字结尾，中间可使用 `_` 和 `-`。克隆时可配置降噪、音量归一化和示例录音；创建请求会生成试听音频，按平台规则计算试听用量，首次正式使用复刻音色时计收音色费用。
-
-### 小米 MiMo
-
-BaseURL 使用 `https://api.xiaomimimo.com/v1`，三种模型分别配置音色：
-
-| 模型 | 音色配置 |
-| :--- | :--- |
-| `mimo-v2.5-tts` | 选择 `mimo_default`、冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo 或 Dean |
-| `mimo-v2.5-tts-voiceclone` | 在“音色与克隆”中保存 MP3 / WAV 参考录音，支持麦麦本地文件与公开音频 URL |
-| `mimo-v2.5-tts-voicedesign` | 填写声音设计描述，可选择优化播报文本；按原文朗读时，将优化开关设为关闭 |
-
-克隆录音编码后的大小上限为 **10 MB**，工作台常规录音导入上限为 **7 MiB**。参考录音与说话风格分别保存在该模型的音色配置中，也可选择固定或动态语调。
-
-输出支持 WAV、MP3 与 PCM。MiMo 的 PCM 使用 **24 kHz、16-bit、单声道**，工作台会自动封装为 WAV 播放。
-
-官方说明：[MiMo 语音合成、声音设计与音色克隆](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5)。
-
-### MiniMax 官方平台
-
-在 **添加服务商 → MiniMax** 中填写官方 API Key 与 BaseURL，选择 `speech-2.8-hd`、`speech-2.8-turbo`、`speech-2.6-hd`、`speech-2.6-turbo`、`speech-02-hd`、`speech-02-turbo`、`speech-01-hd` 或 `speech-01-turbo`。
-
-聊天语音默认采用 **同步 HTTP 合成**：提交本轮正文，取得完整音频后发送。HTTP SSE 与 WebSocket 也属于同步合成，可在模型专属参数中选用；平台的异步任务接口面向长篇音频制作。
-
-| 位置 | 可配置内容 |
-| :--- | :--- |
-| 模型设置 → 平台专属参数 | HTTP 完整音频、HTTP SSE、WebSocket；采样率、格式、声道、音量、音高、语言增强、发音词典、LaTeX 与 AIGC 水印 |
-| 文本归一化模式 | 基础规则；Speech 2.8 / 2.6 的 HTTP 完整音频模式可选高质量处理 |
-| 混合音色 | 添加最多 4 个音色 ID，各设置 1–100 的权重；列表清空后使用路由指定的声音 |
-| 声音效果 | 调整音高、强度、音色与回响；完整音频支持 MP3 / WAV / FLAC，流式模式使用 MP3 |
-| 音色克隆 | 本地文件、公开 URL、已上传文件 ID；示例录音、降噪、音量归一化、录音文字与匹配阈值 |
-| 声音设计 | 声音描述、最多 500 字符的试听文本、自定义音色 ID 或平台生成 ID |
-| 账号音色 | 同步系统、复刻和设计音色；收藏后可试听，复刻与设计音色可从对应窗口删除 |
-
-官方平台支持 MP3、WAV、PCM、FLAC、Opus 与 G.711 μ-law。G.711 使用 8000 Hz 单声道，工作台接收后转换为 PCM WAV 播放。SSE 和 WebSocket 使用 Hex 音频返回方式；MP3 流式可启用恒定码率。模型与音色设置均可选择固定或动态情感，Speech 2.6 额外提供 **活泼** 与 **轻声**。
-
-参考录音支持 MP3 / M4A / WAV，最多 20 MiB，复刻录音时长为 10 秒至 5 分钟，示例录音短于 8 秒。本地录音自动上传到 MiniMax，平台返回的文件 ID 保持完整精度。**已上传文件 ID** 可直接复用已有录音；示例录音框可填写本地路径、公开 URL 或已有示例文件 ID。
-
-复刻试听文本按需填写，填写后会返回预览并计入试听用量。复刻与设计音色创建后，在 7 天内正式合成一次即可激活，并可从账号音色目录同步。首次正式使用音色时按平台规则计收音色费用。
-
-官方说明：[同步合成](https://platform.minimax.cn/docs/api-reference/speech-t2a-http) · [录音复刻](https://platform.minimax.cn/docs/api-reference/voice-cloning-clone) · [声音设计](https://platform.minimax.cn/docs/api-reference/voice-design-design) · [账号音色](https://platform.minimax.cn/docs/api-reference/voice-management-get)
-
-火山引擎的训练状态与音色 ID 一起保留；训练完成后可用于合成，使用“查询音色状态”更新结果。每个复刻音色单独记录合成资源 ID，默认采用 `seed-icl-2.0`。已有预付费槽位再次训练会更新对应音色；后付费音色首次调用合成（含工作台试听）按平台规则收取槽位费用。
-
-OpenAI 的参考录音与授权记录需来自同一说话人，授权记录归属相同账号与项目。已开通自定义音色权限的账号可填写已有 `cons_…` 记录创建音色。
-
-合成与音色创建按服务商规则计费，试听前可核对平台套餐和模型权限。
-
-### 阿里云模型参数
-
-| 模型 | 可配置内容 |
-| :--- | :--- |
-| Qwen-Audio 3.0/3.1 TTS | MP3 / WAV / PCM / Opus、采样率、音量、语速、音调、合成语言、随机种子、风格、SSML 与发音热修复 |
-| Qwen3-TTS | WAV、预设 / VC 音色与语言；Instruct 系列可设置风格与指令优化，倍率保持 1 |
-| CosyVoice | HTTP / WebSocket、音量、语速、音调；HTTP 可选 Opus、种子、语言提示与 SSML，v3/v3.5 支持发音热修复 |
-| MiniMax | MP3 / WAV / PCM / FLAC、采样率、码率、声道、音量、音高、语言增强、发音词典、文本规范化、LaTeX 与 AIGC 水印 |
-
-MiniMax 的声音效果可在 MP3 / WAV / FLAC 下调整音高、强度、音色和回响等音效。Qwen-Audio-TTS 与 CosyVoice 的录音语言在克隆表单设置，合成语言在模型参数中设置；支持的模型还可调整采用录音时长、预处理与音量归一化。
-
-平台参考：[声音复刻](https://docs.bailian.console.aliyun.com/zh/model-studio/voice-clone-design-http-api) · [声音设计](https://docs.bailian.console.aliyun.com/zh/model-studio/voice-design-api-references) · [Qwen-Audio-TTS](https://docs.bailian.console.aliyun.com/zh/model-studio/qwen-audio-tts-http-api) · [Qwen3-TTS](https://docs.bailian.console.aliyun.com/zh/model-studio/qwen-tts-api) · [CosyVoice](https://docs.bailian.console.aliyun.com/zh/model-studio/cosyvoice-tts-http-api) · [MiniMax](https://docs.bailian.console.aliyun.com/zh/model-studio/minimax-synchronous-speech-synthesis-api)
 
 ## 语音语调
 
@@ -442,7 +231,7 @@ MiniMax 的声音效果可在 MP3 / WAV / FLAC 下调整音高、强度、音色
 | 阿里云_MiniMax | 使用原生 `emotion`，平静对应 `calm`；Speech 02 额外支持轻声 `whisper` |
 | 硅基流动 | `FunAudioLLM/CosyVoice2-0.5B` 使用官方指令前缀 |
 | MiMo | V2.5 的预设、克隆与声音设计模型使用独立风格指令 |
-| 火山引擎 | 豆包语音合成 2.0 使用 `context_texts`；`seed-icl-2.0` 复刻音色可在模型版本留空时使用语调 |
+| 火山引擎 | 公版 TTS 2.0 使用 `context_texts`；ICL 2.0 的 expressive 版本支持整段语音指令与 COT 标签 |
 
 工作台按当前模型、音色和资源显示支持的选项。其他模型、GPT-SoVITS 与自定义 HTTP 接口可继续配置各自原生语速、参考录音等参数。
 
@@ -569,7 +358,7 @@ Windows 宿主机可将命令中的源文件写成 `C:\Audio\sample.wav`。工�
 
 ### 平台录音要求
 
-常用参考录音格式为 **MP3 / WAV**。通用本地录音上限为 **7 MiB**，硅基流动最多 **4 MiB**；Breeze 官方在线克隆采用至少 **3 秒**、最多 **5 MB** 的录音，MiniMax 官方克隆支持 **MP3 / M4A / WAV**、最多 **20 MiB**。建议使用清晰、单人、背景安静的短录音，并按平台要求准备准确文字与合适时长。
+常用参考录音格式为 **MP3 / WAV**。通用本地录音上限为 **7 MiB**，硅基流动最多 **4 MiB**；Breeze 官方在线克隆采用至少 **3 秒**、最多 **5 MB** 的录音，MiniMax 官方克隆支持 **MP3 / M4A / WAV**、最多 **20 MiB**，火山复刻支持 **WAV / MP3 / Ogg / M4A / AAC / PCM**、最多 **10 MiB**。建议使用清晰、单人、背景安静的短录音，并按平台要求准备准确文字与合适时长。
 
 阿里云_MiniMax 的录音来源采用 **公开音频 URL**。可先将录音上传到提供直链的存储服务，再将可读取的 MP3 / M4A / WAV 链接填写到音色克隆窗口；录音时长为 **10 秒至 5 分钟**，文件最多 **20 MB**。
 
@@ -723,6 +512,333 @@ MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/
 | 多页面保存冲突 | 保留当前编辑内容，刷新服务端设置后重新应用并保存 |
 | 平台合成失败 | 在试听页指定平台与模型，按错误提示核对接口、密钥、权限和代理 |
 | 自然语言请求后等待回复 | 查看主程序回复调度判定；使用 `/tts 你好` 检查合成与发送，结合 `[TTS]` 日志定位环节 |
+
+## 各平台配置
+
+合成与音色创建按服务商规则计费，试听前可核对平台套餐和模型权限。
+
+[BreezeTTS](#breezetts-接入) · [OpenAI 与自定义接口](#openai-与自定义接口) · [阿里云](#阿里云模型参数) · [MiniMax](#minimax-官方平台) · [火山引擎](#火山引擎) · [小米 MiMo](#小米-mimo)
+
+### BreezeTTS 接入
+
+添加 **BreezeTTS**，在平台连接中选择 **本地API** 或 **Breeze 官方在线**，再填写对应的 BaseURL。
+
+| 接入方式 | 声音配置 | 常用参数 |
+| :--- | :--- | :--- |
+| 本地API | 在「参考音色」中保存录音路径与准确的文字稿；「声音设计」使用文字描述创建声音 | CFG 指令强度、随机种子、默认声音来源、风格与语调 |
+| 官方在线 | 同步公共与个人音色，或上传录音创建克隆、通过描述设计音色，保存后使用音色 ID | 模型、合成语言、语速、音量、说话人相似度、同步 / 流式 / 后台任务 |
+
+#### 本地API · 从启动到第一次语音
+
+**① 启动 Breeze 服务**
+
+先按 [Breeze 开源项目说明](https://github.com/breezeblue-ai/breeze-tts#-streaming-api) 准备运行环境和模型权重。对于安装在 `C:\Apps\breeze-tts`、模型位于 `checkpoints\breeze-tts-2` 的服务，在 PowerShell 中执行：
+
+```powershell
+Set-Location C:\Apps\breeze-tts
+& .\.venv\Scripts\python.exe -m breeze_infer.api .\checkpoints\breeze-tts-2 --host 127.0.0.1 --port 7860
+```
+
+保持此服务运行，再打开麦麦的语音工作台。使用其他 Python 环境时，将命令中的解释器替换为已安装 Breeze 依赖的 Python；模型路径填写实际权重目录。
+
+**② 配置平台连接**
+
+进入 **服务商 → 添加服务商 → BreezeTTS**，填写：
+
+| 字段 | 同机示例 | 说明 |
+| :--- | :--- | :--- |
+| 配置名称 | `BreezeTTS_本地` | 用于整体路由和聊天命令 |
+| Breeze 接入方式 | **本地API** | 适用于开源 Breeze 服务及采用相同协议的特化服务 |
+| BaseURL | `http://127.0.0.1:7860/v1` | 插件自动生成 `/audio/speech` 请求路径 |
+| API Key | 留空 | 默认开源服务使用匿名请求；启用鉴权的服务填写对应密钥 |
+
+点击启用开关旁的 **保存此平台**。例如上述地址实际请求 `http://127.0.0.1:7860/v1/audio/speech`。部署在另一台机器时，将 `127.0.0.1` 换成 Breeze 机器的地址，同时为服务设置可访问的监听地址与端口。`127.0.0.1` 始终指 MaiBot 所在的运行环境；容器部署时请填写容器能访问的 Breeze 服务地址。
+
+**③ 添加模型**
+
+点击 **选择预设或手动添加模型**，选择 `breeze-tts-2`，再点击 **应用所选项**。打开该模型的 **模型设置**，第一次使用建议保留：
+
+| 设置 | 建议值 |
+| :--- | :--- |
+| 输出格式 | `wav` |
+| 语调模式 | **关闭语调控制** |
+| CFG 指令强度 | `1` |
+| 随机种子 | `42` |
+| 模型默认声音来源 | **参考录音 · 原声复刻 / 语气引导** |
+
+本地服务使用启动时加载的模型权重，工作台中的模型 ID 用于组织配置与路由。接入多个模型实例时，可在各模型的 **BaseURL** 中填写对应实例地址。点击 **保存模型** 保留设置。
+
+**④ 保存参考音色**
+
+打开该模型的 **音色与克隆 → 参考音色 → 新建音色**。填写音色名称（例如 `巫祝参考音色`），选择 **麦麦本地文件**，再填写参考音频路径与完整文字稿；收藏 ID 由工作台自动生成。
+
+推荐将 MP3 / WAV 录音放入插件数据目录的 `reference_audio/` 文件夹。相对路径以插件数据目录为基准，例如：
+
+```text
+reference_audio/sample.wav
+```
+
+这对应 MaiBot 安装目录下的：
+
+```text
+data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio/sample.wav
+```
+
+也可填写绝对路径，或通过路径旁的目录选择按钮选取录音。「本地文件」指 **运行 MaiBot 的机器上的文件**；插件读取后随请求发送给 Breeze，适用于同机服务和远程服务。音频来源也支持公开音频链接。
+
+参考录音与文字稿可采用如下通用示例：
+
+```text
+你好，我是麦麦，很高兴和你聊天。
+```
+
+录音宜清晰、单人讲话、背景安静；文字稿覆盖录音中说出的全部内容，重复语句也按录音填写。点击 **保存音色**，每个收藏音色会分别保留参考录音、文字稿和语气设置。也可在 **模型设置 → 平台专属参数** 中填写模型默认参考录音，供沿用模型声音的路由使用。
+
+**⑤ 试听并加入路由**
+
+点击 **试听音色**，或进入 **试听工作台**，选择 `BreezeTTS_本地/breeze-tts-2` 和刚保存的音色，输入一句简短文字后合成。首次请求包含模型预热，等待时间通常较长。
+
+听到声音后，进入 **语音路由**，将此 Provider/Model 设为首选并选择音色，点击顶部 **保存全部设置**。聊天中可用 `/mmtts model` 查看模型列表，使用 `/mmtts model BreezeTTS_本地/breeze-tts-2` 切换模型；音色以整体路由中保存的选择为准。
+
+本地 API 返回的单声道 PCM 会自动封装为网页可播放的 WAV，聊天语音按发送设置转换为 SILK。同一 Breeze 实例的插件请求按顺序处理。
+
+#### 本地API · 语气与声音设计
+
+| 使用方式 | 配置方法 | CFG 建议 |
+| :--- | :--- | :--- |
+| 原声复刻 | 参考录音 + 完整文字稿，语调模式选择关闭，风格留空 | **1** |
+| 固定语调 | 参考录音 + 文字稿，语调模式选择固定，选择温柔、开心等语气 | 从 **1** 开始，需要更强指令效果时选 **4** |
+| 动态语调 | 参考录音 + 文字稿，语调模式选择动态，并设置允许语调列表 | 从 **1** 开始，确认风格或语调指令后可选 **4** |
+| 声音设计 | 进入「声音设计」，填写声音描述，例如「年轻女性，声音清晰温柔，语速舒缓」 | **4** |
+
+纯复刻与模型原生声音使用 **CFG=1**；风格或语调指令为更高 CFG 提供引导。固定语调直接作用于接口。动态语调由麦麦选择允许列表中的语气，插件校验并解析标签后调用合成；标签会从朗读正文中移除。语调可在模型统一设置，也可为某个音色单独保存。
+
+| 遇到的情况 | 调整方法 |
+| :--- | :--- |
+| 连接服务失败 | 确认 Breeze 进程持续运行，核对 BaseURL、监听端口与网络可达性 |
+| 提示参考录音或文字稿必填 | 在当前收藏音色中同时填写录音路径和完整文字稿，或补齐模型默认参考录音 |
+| 提示纯复刻使用 CFG=1 | 将 CFG 调整为 `1`，或配置明确的风格与语调指令后使用更高值 |
+| 声音与预期有差别 | 检查当前路由的模型和音色，核对录音文字稿，使用清晰的参考录音后再次试听 |
+
+#### 官方在线 · 账号音色与鉴权
+
+选择 **Breeze 官方在线**，BaseURL 填写 `https://api.breeze.blue/v1`，API Key 填写有效的 Breeze 开发者密钥。本地API 的 API Key 也支持按需填写；填写后统一发送：
+
+```http
+Authorization: Bearer 你的密钥
+```
+
+官方在线音色克隆使用至少 **3 秒**、最多 **5 MB** 的录音，由在线服务生成文字转写；声音设计填写 **3–500 字符**的描述与试听文本。选择音色语言后，创建结果自动保存为账号音色。在线模型包括 `breeze-tts-2` 与 `breeze-tts-2-multilingual`，也可从账号模型列表选择。
+
+在线合成默认使用账号的 **1000 字符**上限；获得更高额度的账号可在模型参数中调整至 **2000**。固定语调直接作用于接口；动态语调沿用工作台的标签与允许列表设置。
+
+官方说明：[开源服务](https://github.com/breezeblue-ai/breeze-tts#-streaming-api) · [在线接口](https://docs.breezeblue.ai/api-reference/introduction) · [音色与鉴权](https://docs.breezeblue.ai/authentication)
+
+### OpenAI 与自定义接口
+
+在 **OpenAI兼容服务 → 模型设置 → 请求协议** 中选择接口格式，每个模型独立保存。
+
+| 协议 | 配置方式 |
+| :--- | :--- |
+| OpenAI 官方 Speech | 填写 BaseURL、模型与音色，使用官方参数格式 |
+| 自定义 HTTP 格式 | 选择请求模板，调整路径、字段、鉴权和音频响应格式 |
+
+**OpenAI 官方 Speech** 提供 13 个预设音色、音色 ID 对象、MP3 / WAV / Opus / AAC / FLAC / PCM、0.25–4 倍语速、模型风格与固定 / 动态语调。`tts-1`、`tts-1-hd` 使用各自的预设音色和音频流；`gpt-4o-mini-tts` 系列还可设置风格指令与 SSE 返回。高级参数中可填写 Organization、Project。具有相应权限的兼容服务可按 OpenAI 音色接口创建和删除账号音色，克隆时填写已有授权记录 ID。
+
+**自定义 HTTP 格式** 提供 Speech JSON、Chat Audio JSON、文本字段 JSON、GET 参数与表单模板。BaseURL 例如 `https://example.com/v1`，合成路径例如 `audio/speech`，合成时使用 `https://example.com/v1/audio/speech`。
+
+请求内容可按服务商格式填写，例如：
+
+```json
+{
+  "model": "{{model}}",
+  "text": "{{text}}",
+  "speaker": "{{voice_id}}",
+  "speed": "{{speed}}",
+  "style": "{{instructions}}"
+}
+```
+
+| 可用变量 | 内容 |
+| :--- | :--- |
+| `{{text}}`、`{{model}}` | 朗读正文、所选模型 ID |
+| `{{voice}}`、`{{voice_id}}` | 音色值或音色 ID 对象、音色 ID 字符串 |
+| `{{speed}}`、`{{response_format}}`、`{{sample_rate}}` | 语速、输出格式、PCM 采样率 |
+| `{{instructions}}` | 合并后的风格与语调指令 |
+| `{{api_key}}` | 平台中保存的 API Key |
+| `{{reference_audio}}`、`{{reference_base64}}` | 参考录音的 Data URI、Base64 内容 |
+| `{{reference_url}}`、`{{reference_text}}` | 参考录音链接、录音文字 |
+
+单独占据字段值的变量会保留对应类型，例如 `"{{speed}}"` 会成为数字。JSON 可使用嵌套对象与数组；GET 和表单采用单层字段。鉴权可选择 Bearer、自定义请求头或开放接口；API Key 填在平台密钥框，请求模板与请求头通过 `{{api_key}}` 引用。风格与语调通过请求内容中的 `{{instructions}}` 传递。
+
+| 响应类型 | 配置示例 |
+| :--- | :--- |
+| 二进制音频 | 直接接收音频流 |
+| JSON Base64 / Hex / URL | 音频字段填写 `/data/audio` |
+| Chat Audio JSON | 音频字段填写 `/choices/0/message/audio/data` |
+| 纯文本 URL | 响应正文作为音频下载链接 |
+| SSE Base64 | 分别填写音频事件、完成事件、事件类型字段和音频字段 |
+
+响应字段使用 **JSON Pointer**：`/data/audio` 表示 `data` 中的 `audio`，`/choices/0` 表示 `choices` 中的第一项，留空表示整个响应。业务状态可配置字段与成功值，例如 `/code` 对应 `[0, 200]`；数字 `0` 和字符串 `"0"` 分别匹配。错误字段、模型列表和音色列表也可按服务商格式设置。接口能力与实际音色权限以对应服务商说明为准。
+
+官方参考：[Speech 参数](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) · [音色与合成指南](https://developers.openai.com/api/docs/guides/text-to-speech)
+
+OpenAI 的参考录音与授权记录需来自同一说话人，授权记录归属相同账号与项目。已开通自定义音色权限的账号可填写已有 `cons_…` 记录创建音色。
+
+### 阿里云模型参数
+
+阿里云声音设计支持 1–500 字符的声音描述，以及 15–200 字符的预览文本，预览语言可选择中文或英文。创建完成后，工作台直接展示平台返回的 WAV 试听音频，声音描述和预览文字随每个音色分别保存。克隆与设计音色会显示「审核中 / 审核通过 / 审核失败」，点击 **查询音色状态** 更新结果，审核通过后即可用于合成。
+
+已收藏的阿里云账号音色可查询状态、更新克隆录音或删除云端音色。列表中的 **×** 用于移出本地收藏；**删除云端音色** 会显示确认窗口，并同步处理平台账号与本地收藏。整体路由正在使用的音色可先切换路由再管理。
+
+百炼 MiniMax 复刻录音使用公网 MP3 / M4A / WAV 链接，时长 10 秒至 5 分钟，文件最多 20 MB。自定义音色 ID 长度为 8–256 位，以英文字母开头、字母或数字结尾，中间可使用 `_` 和 `-`。克隆时可配置降噪、音量归一化和示例录音；创建请求会生成试听音频，按平台规则计算试听用量，首次正式使用复刻音色时计收音色费用。
+
+| 模型 | 可配置内容 |
+| :--- | :--- |
+| Qwen-Audio 3.0/3.1 TTS | MP3 / WAV / PCM / Opus、采样率、音量、语速、音调、合成语言、随机种子、风格、SSML 与发音热修复 |
+| Qwen3-TTS | WAV、预设 / VC 音色与语言；Instruct 系列可设置风格与指令优化，倍率保持 1 |
+| CosyVoice | HTTP / WebSocket、音量、语速、音调；HTTP 可选 Opus、种子、语言提示与 SSML，v3/v3.5 支持发音热修复 |
+| MiniMax | MP3 / WAV / PCM / FLAC、采样率、码率、声道、音量、音高、语言增强、发音词典、文本规范化、LaTeX 与 AIGC 水印 |
+
+MiniMax 的声音效果可在 MP3 / WAV / FLAC 下调整音高、强度、音色和回响等音效。Qwen-Audio-TTS 与 CosyVoice 的录音语言在克隆表单设置，合成语言在模型参数中设置；支持的模型还可调整采用录音时长、预处理与音量归一化。
+
+平台参考：[声音复刻](https://docs.bailian.console.aliyun.com/zh/model-studio/voice-clone-design-http-api) · [声音设计](https://docs.bailian.console.aliyun.com/zh/model-studio/voice-design-api-references) · [Qwen-Audio-TTS](https://docs.bailian.console.aliyun.com/zh/model-studio/qwen-audio-tts-http-api) · [Qwen3-TTS](https://docs.bailian.console.aliyun.com/zh/model-studio/qwen-tts-api) · [CosyVoice](https://docs.bailian.console.aliyun.com/zh/model-studio/cosyvoice-tts-http-api) · [MiniMax](https://docs.bailian.console.aliyun.com/zh/model-studio/minimax-synchronous-speech-synthesis-api)
+
+### MiniMax 官方平台
+
+在 **添加服务商 → MiniMax** 中填写官方 API Key 与 BaseURL，选择 `speech-2.8-hd`、`speech-2.8-turbo`、`speech-2.6-hd`、`speech-2.6-turbo`、`speech-02-hd`、`speech-02-turbo`、`speech-01-hd` 或 `speech-01-turbo`。
+
+聊天语音默认采用 **同步 HTTP 合成**：提交本轮正文，取得完整音频后发送。HTTP SSE 与 WebSocket 也属于同步合成，可在模型专属参数中选用；平台的异步任务接口面向长篇音频制作。
+
+| 位置 | 可配置内容 |
+| :--- | :--- |
+| 模型设置 → 平台专属参数 | HTTP 完整音频、HTTP SSE、WebSocket；采样率、格式、声道、音量、音高、语言增强、发音词典、LaTeX 与 AIGC 水印 |
+| 文本归一化模式 | 基础规则；Speech 2.8 / 2.6 的 HTTP 完整音频模式可选高质量处理 |
+| 混合音色 | 添加最多 4 个音色 ID，各设置 1–100 的权重；列表清空后使用路由指定的声音 |
+| 声音效果 | 调整音高、强度、音色与回响；完整音频支持 MP3 / WAV / FLAC，流式模式使用 MP3 |
+| 音色克隆 | 本地文件、公开 URL、已上传文件 ID；示例录音、降噪、音量归一化、录音文字与匹配阈值 |
+| 声音设计 | 声音描述、最多 500 字符的试听文本、自定义音色 ID 或平台生成 ID |
+| 账号音色 | 同步系统、复刻和设计音色；收藏后可试听，复刻与设计音色可从对应窗口删除 |
+
+官方平台支持 MP3、WAV、PCM、FLAC、Opus 与 G.711 μ-law。G.711 使用 8000 Hz 单声道，工作台接收后转换为 PCM WAV 播放。SSE 和 WebSocket 使用 Hex 音频返回方式；MP3 流式可启用恒定码率。模型与音色设置均可选择固定或动态情感，Speech 2.6 额外提供 **活泼** 与 **轻声**。
+
+参考录音支持 MP3 / M4A / WAV，最多 20 MiB，复刻录音时长为 10 秒至 5 分钟，示例录音短于 8 秒。本地录音自动上传到 MiniMax，平台返回的文件 ID 保持完整精度。**已上传文件 ID** 可直接复用已有录音；示例录音框可填写本地路径、公开 URL 或已有示例文件 ID。
+
+复刻试听文本按需填写，填写后会返回预览并计入试听用量。复刻与设计音色创建后，在 7 天内正式合成一次即可激活，并可从账号音色目录同步。首次正式使用音色时按平台规则计收音色费用。
+
+官方说明：[同步合成](https://platform.minimax.cn/docs/api-reference/speech-t2a-http) · [录音复刻](https://platform.minimax.cn/docs/api-reference/voice-cloning-clone) · [声音设计](https://platform.minimax.cn/docs/api-reference/voice-design-design) · [账号音色](https://platform.minimax.cn/docs/api-reference/voice-management-get)
+
+### 火山引擎
+
+#### 连接与鉴权
+
+添加 **火山引擎** 服务商，BaseURL 填写 `https://openspeech.bytedance.com/api/v3`。模型库中可选择 `seed-tts-2.0`、`seed-tts-2.0-standard` 或 `seed-tts-2.0-expressive`。`seed-tts-2.0` 在工作台表示通用配置：使用 ICL 2.0 音色时，无语音指令选择 standard，有风格或语调指令选择 expressive；也可显式选择其中一个效果版本。
+
+| 鉴权方式 | 密钥框 | 模型参数 |
+| :--- | :--- | :--- |
+| API Key | 控制台提供的 API Key | 选择 **API Key**，无需填写 App ID |
+| Access Token | 控制台提供的 Access Token | 选择 **Access Token**，并填写对应 App ID |
+
+插件按接口协议分别发送合成用的 `X-Api-App-Id`、音色管理用的 `X-Api-App-Key`，API Key 鉴权统一使用 `X-Api-Key`。音色创建、状态查询与合成应使用同一账号和区域，管理接口由 BaseURL 生成。
+
+#### 音色资源与模型版本
+
+**资源 ID 决定音色所属的产品和计费资源，模型版本决定 ICL 2.0 的合成效果。两者分别配置。**
+
+| 音色类型 | 合成资源 ID | 模型版本与语调 |
+| :--- | :--- | :--- |
+| 公版豆包语音合成 2.0 | `seed-tts-2.0` | 支持整段语音指令；请求不发送复刻效果版本 |
+| 公版语音合成 1.0 | `seed-tts-1.0` / `seed-tts-1.0-concurr` | 原生朗读；部分多情感音色可用原生情感参数 |
+| 复刻 / 设计音色 2.0 | `seed-icl-2.0` | `seed-tts-2.0-standard` 或 `seed-tts-2.0-expressive`；语音指令与动态语调使用 expressive |
+| 复刻 / 设计音色 1.0 | `seed-icl-1.0` / `seed-icl-1.0-concurr` | 使用对应旧版资源，不发送 2.0 效果版本 |
+
+在 **模型设置 → 平台专属参数** 选择默认合成资源；每个收藏音色还可单独绑定资源，其值优先于模型默认值。控制台创建的设计音色同样归属 ICL 资源。若出现 `55000000 resource ID is mismatched with speaker related resource`，核对该音色实际归属的 ICL / TTS 产品与版本，按控制台的资源授权填写；`seed-tts-2.0-expressive` 填在模型库中。
+
+**导入控制台已有音色：**
+
+1. 在模型库选择 `seed-tts-2.0-expressive`（需要语调控制时），或使用通用模型 `seed-tts-2.0`。
+2. 打开 **音色与克隆 → 自定义音色 → 新建音色**，填写名称与完整音色 ID。
+3. 在 **音色所属资源** 选择该声音对应的 ICL 资源，例如 `seed-icl-2.0`，点击 **保存音色**。
+4. 对支持语音指令的组合选择固定或动态语调，试听后在 **语音路由** 选用此音色。可以用 **查询音色状态** 检查训练结果，或 **播放平台试听** 播放平台提供的样本。
+
+#### 录音复刻
+
+进入 **音色与克隆 → 音色克隆 → 新建音色**，选择此音色的 ICL 合成资源与槽位类型：
+
+| 设置 | 填写方式 |
+| :--- | :--- |
+| 预付费槽位 | 使用控制台已购买的 `S_…` 音色槽位；再次训练会更新该槽位 |
+| 后付费音色 | 使用 8–256 位字母、数字、下划线或连字符，以字母开头、字母或数字结尾；插件按后付费协议提交自定义 ID |
+| 录音语言 | 按实际录音选择中文、英文等平台支持的语言，录音文字按实际内容填写 |
+| 平台试听文本 | 选填，4–300 字符，与录音语言一致 |
+| 录音降噪 / 音量归一化 | 按录音质量设置；默认不降噪、启用音量归一化 |
+
+后付费 ID 不能使用官方保留的前后缀，例如 `S_`、`ICL_`、`zh_`、`my_`、`BV` 或 `_bigtts`；可使用 `maimai_voice_001` 这样的名称。平台授权与剩余额度以控制台为准，首次正式合成（包含工作台的 **试听音色**）按平台规则计收后付费槽位费用。
+
+参考录音可使用麦麦本地文件或公开下载链接，支持 **WAV / MP3 / Ogg / M4A / AAC / PCM**，最多 **10 MiB**。原始 PCM 使用 **24 kHz、单声道、16-bit**，文件名或 URL 路径以 `.pcm` 结尾；其他格式由文件内容识别。点击 **创建并保存克隆音色** 后保留音色 ID 与训练状态，训练完成前可点击 **查询音色状态** 更新结果。
+
+#### 文字与图片音色设计
+
+进入 **音色与克隆 → 声音设计 → 新建音色**：
+
+| 字段 | 要求 |
+| :--- | :--- |
+| 设计音色槽位 | 使用控制台已购买的 `S_…` 槽位；设计接口使用该槽位，重复设计会更新它 |
+| 此音色的合成资源 | 选择槽位对应的 ICL 资源，例如 `seed-icl-2.0` |
+| 声音设计描述 | 最多 200 字符，例如“年轻女性，声音清晰温柔，语速舒缓” |
+| 参考图片 URL | 选填，可公开下载、最多 10 MB；描述与图片至少填写一项，同时填写时平台优先采用图片 |
+| 平台试听文本 | 必填，1–300 字符 |
+| 试听语言 | 中文或英文 |
+
+点击 **设计并保存音色** 后，工作台保存平台返回的音色 ID、状态及剩余创建次数。随后可点击 **播放平台试听** 获取平台样本，也可使用 **试听音色** 按当前模型参数正式合成。创建与试听分开执行，样本下载失败时已创建的音色仍会保留。
+
+状态查询同时显示剩余创建次数与训练版本编号（平台返回时）。平台试听每次查询新样本链接，不将短期有效的签名链接保存到配置文件；暂无可用样本时显示具体提示。平台未提供通过此接口删除或枚举全部音色的能力，已有音色通过 ID 导入。
+
+#### 风格、固定与动态语调
+
+在模型或收藏音色中配置 **语音语调**。ICL 2.0 使用 expressive 效果版本，公版 TTS 2.0 使用其对应资源。显式选择 standard 时保持原生朗读；需要语调控制时切换为 expressive。旧的空模型配置仍可读取，工作台新配置使用模型库中的非空 ID。
+
+| 指令方式 | 接口行为 | 适用组合 |
+| :--- | :--- | :--- |
+| 整段语音指令 | 将风格与语调放入 `additions.context_texts`，正文保持原文 | 公版 TTS 2.0；ICL 2.0 expressive |
+| COT 标签 | 将指令写入 `<cot>` 并开启 `use_tag_parser`，按官方建议分组控制长度 | ICL 2.0 expressive |
+
+固定语调直接生成指令；动态语调由麦麦按允许列表选择，每条回复使用一个语调。COT 只在合成请求中包装正文，聊天显示与保留文字使用原文。指令过长时请缩短描述或改用整段语音指令；SSML 与 COT 分别选用。
+
+#### 合成参数
+
+在 **模型设置 → 平台专属参数** 中配置：
+
+| 参数 | 范围与说明 |
+| :--- | :--- |
+| 输出格式与采样率 | MP3 / WAV / PCM / Opus；Opus 使用 48000 Hz，PCM 按采样率封装为 WAV 试听 |
+| 语速与音量 | 语速 0.5–2 倍；音量增益 -50–100 |
+| 比特率 | 沿用平台默认，或 16000 / 32000 / 64000 / 160000；适用于 MP3 / Opus，低码率自动发送关闭默认码率标志 |
+| 音调 | -12–12 半音 |
+| 合成语言 / 方言 | 按所用音色能力填写官方代码，留空由平台判断 |
+| 末尾静音 | 0–30000 毫秒，默认 0 |
+| 复刻还原模式 | ICL 2.0，适合同语言合成；其他资源保持关闭 |
+| 原生情感与强度 | 仅适用于支持该原生参数的多情感音色，强度 1–5；2.0 自然语言风格优先通过语音指令配置 |
+| SSML / LaTeX / AIGC 水印 | 按平台与音色支持情况开启；LaTeX 使用 `latex_parser=v2` 并自动设置所需的 Markdown 解析参数；SSML 与 LaTeX 分别启用 |
+| 发音词典 | 每行填写平台支持的 `北京/(bei3)(jing1)` 规则，通过 `pronunciation_dict.tone` 发送 |
+
+官方参考：[V3 HTTP 合成详细参数](https://docs.volcengine.com/docs/doubao-voice/http-chunked-sse-unidirectional-streaming-v3?lang=zh) · [HTTP 合成说明](https://docs.volcengine.com/docs/doubao-voice/unidirectional-streaming-text-to-speech-http?lang=zh) · [音色复刻](https://docs.volcengine.com/docs/doubao-voice/tone-training-http?lang=zh) · [音色设计](https://docs.volcengine.com/docs/doubao-voice/sound-design-api?lang=zh) · [音色查询](https://docs.volcengine.com/docs/doubao-voice/tone-query-http?lang=zh)
+
+### 小米 MiMo
+
+BaseURL 使用 `https://api.xiaomimimo.com/v1`，三种模型分别配置音色：
+
+| 模型 | 音色配置 |
+| :--- | :--- |
+| `mimo-v2.5-tts` | 选择 `mimo_default`、冰糖、茉莉、苏打、白桦、Mia、Chloe、Milo 或 Dean |
+| `mimo-v2.5-tts-voiceclone` | 在“音色与克隆”中保存 MP3 / WAV 参考录音，支持麦麦本地文件与公开音频 URL |
+| `mimo-v2.5-tts-voicedesign` | 填写声音设计描述，可选择优化播报文本；按原文朗读时，将优化开关设为关闭 |
+
+克隆录音编码后的大小上限为 **10 MB**，工作台常规录音导入上限为 **7 MiB**。参考录音与说话风格分别保存在该模型的音色配置中，也可选择固定或动态语调。
+
+输出支持 WAV、MP3 与 PCM。MiMo 的 PCM 使用 **24 kHz、16-bit、单声道**，工作台会自动封装为 WAV 播放。
+
+官方说明：[MiMo 语音合成、声音设计与音色克隆](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5)。
 
 ---
 
