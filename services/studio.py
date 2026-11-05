@@ -126,6 +126,10 @@ class Studio:
         result = {"state": job.state, "error": job.error}
         if isinstance(job.result, CloneResult):
             result["result"] = {"voice_id": job.result.voice_id, "state": job.result.state, "name": job.result.name}
+            if job.result.available_training_times is not None:
+                result["result"]["available_training_times"] = job.result.available_training_times
+            if job.result.model_types:
+                result["result"]["model_types"] = list(job.result.model_types)
         audio = job.result.preview if isinstance(job.result, CloneResult) else job.result
         if isinstance(audio, Audio):
             if not 0 <= offset <= len(audio.data):
@@ -201,6 +205,14 @@ class Studio:
         if model_id:
             profile = profile.for_model(model_id)
         provider = self.service.provider(profile)
+        if operation == "voice_preview":
+            if not voice_id or len(voice_id) > 500:
+                raise TTSError("请填写平台试听的音色 ID")
+            return self.start(
+                lambda: self.service.execute(lambda: provider.voice_preview(profile, voice_id)),
+                operation_name=operation, profile_id=profile_id, model_id=model_id,
+                private_values=(profile.api_key,),
+            )
         if operation in {"design", "update_voice", "delete_voice"}:
             if operation == "design":
                 if not name.strip() or len(name) > 80:
@@ -268,10 +280,10 @@ class Studio:
             if not url or len(url) > 500:
                 raise TTSError("请填写要查询的音色 ID")
 
-            async def clone_status() -> Dict[str, str]:
+            async def clone_status() -> CloneResult:
                 result = await self.service.execute(lambda: provider.clone_status(profile, url))
                 self.service.invalidate_voices(profile)
-                return {"voice_id": result.voice_id, "state": result.state}
+                return result
 
             return self.start(
                 clone_status,

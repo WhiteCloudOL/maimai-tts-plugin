@@ -1963,6 +1963,18 @@
         resource_id: "seed-tts-2.0",
         volc_loudness_rate: 0,
         volc_bit_rate: 0,
+        volc_instruction_mode: "context",
+        volc_pitch: 0,
+        volc_language: "",
+        volc_dialect: "",
+        volc_silence_duration: 0,
+        volc_tone_fidelity: false,
+        volc_emotion: "",
+        volc_emotion_scale: 4,
+        volc_design_image_url: "",
+        volc_clone_demo_text: "",
+        volc_clone_denoise: false,
+        volc_clone_normalize: true,
         auth_mode: "api_key",
         reference_url: "",
         reference_source: "url",
@@ -2612,8 +2624,12 @@
       function toneCapability(
         p,
         voice = p.voice,
-        resource = p.options.resource_id,
+        resource,
       ) {
+        if (resource === undefined) {
+          const saved = p.voices.find((item) => item.id === voice && (!item.model || item.model === p.model));
+          resource = saved?.resource_id || p.options.resource_id;
+        }
         return state.intonation.rules.find(
           (r) =>
             r.kind === p.kind &&
@@ -2635,8 +2651,8 @@
             p,
             isVoice ? v.id : p.voice,
             isVoice
-              ? v.resource_id || p.options.resource_id
-              : p.options.resource_id,
+              ? voiceResource(p)
+              : undefined,
           ),
           mode = inherited ? "inherit" : tone.mode,
           modes = [
@@ -2954,6 +2970,49 @@
           options: state.voiceEditor.options,
         };
       }
+      function voiceResource(p) {
+        const editor = state.voiceEditor;
+        if (p.kind === "volcengine" && editor && isAccountClone())
+          return editor.options.clone_resource_id;
+        return editor?.voice.resource_id || p.options.resource_id;
+      }
+      function volcVoiceFields(p, editor) {
+        const o = editor.options,
+          v = editor.voice,
+          catalog = preset(p),
+          account = isAccountClone(),
+          resource = account
+            ? selectField("options.clone_resource_id", "此音色的合成资源", o.clone_resource_id, catalog.clone_resources,
+                "ICL 资源与音色版本匹配；通用模型按语调配置选择 standard / expressive，也可在模型库显式选择。")
+            : `<div class="field wide"><label for="volc-voice-resource">音色所属资源</label>
+                <select id="volc-voice-resource" class="maibot-input input" data-voice-property="resource_id">
+                  <option value="">沿用模型资源</option>
+                  ${[...new Set([...catalog.resources, v.resource_id].filter(Boolean))].map((id) => `<option value="${h(id)}" ${id === v.resource_id ? "selected" : ""}>${h(id)}</option>`).join("")}
+                </select><small>导入控制台设计或复刻音色时，选择对应的 ICL 资源。</small></div>`;
+        const info = `<p class="muted wide">音色状态 · ${h({ready: "可用", training: "训练中", failed: "失败"}[v.clone_state || "ready"])}
+          ${v.available_training_times == null ? "" : ` · 剩余创建次数 ${h(v.available_training_times)}`}
+          ${v.clone_model_types?.length ? ` · 训练版本 ${h(v.clone_model_types.join("、"))}` : ""}</p>`;
+        if (!account || editor.remoteCreated)
+          return resource + info + (v.design_prompt
+            ? `<p class="muted wide">声音设计描述 · ${h(v.design_prompt)}</p>` : "");
+        if (state.voiceWorkspace.category === "design")
+          return resource +
+            field("options.clone_speaker_id", "设计音色槽位", o.clone_speaker_id, "填写控制台已购买的 S_ 开头槽位。再次设计会更新此槽位。") +
+            area("options.voice_prompt", "声音设计描述", o.voice_prompt, "最多 200 字符，文字描述与图片至少填写一项。") +
+            field("options.volc_design_image_url", "参考图片 URL（选填）", o.volc_design_image_url,
+              "使用可公开下载的图片，最多 10 MB；文字与图片同时填写时，平台优先使用图片。", "url", true) +
+            area("options.design_preview_text", "平台试听文本", o.design_preview_text, "1–300 字符。平台试听使用设计响应的样本音频。") +
+            selectField("options.design_language", "试听语言", o.design_language, [["zh", "中文"], ["en", "英文"]]);
+        return resource +
+          selectField("options.clone_billing", "音色槽位类型", o.clone_billing,
+            [["prepaid", "预付费 · 控制台槽位"], ["postpaid", "后付费 · 自定义 ID"]]) +
+          field("options.clone_speaker_id", "目标音色 ID", o.clone_speaker_id,
+            "预付费使用 S_ 开头槽位；后付费使用 8–256 位自定义名称，不能使用官方保留前缀。") +
+          selectField("options.clone_language", "录音语言", o.clone_language, catalog.clone_languages) +
+          field("options.volc_clone_demo_text", "平台试听文本（选填）", o.volc_clone_demo_text, "4–300 字符，与录音语言一致。", "text", true) +
+          toggleField("options.volc_clone_denoise", "录音降噪", o.volc_clone_denoise) +
+          toggleField("options.volc_clone_normalize", "音量归一化", o.volc_clone_normalize);
+      }
       function miniMaxVoiceFields(p, editor) {
         const o = editor.options;
         if (editor.remoteCreated) return "";
@@ -2969,6 +3028,7 @@
           `<details class="advanced-settings wide"><summary>示例录音与文字校验</summary><div class="form-grid">${field("options.minimax_prompt_audio", "示例录音（选填）", o.minimax_prompt_audio, "可填本地路径、公开 URL 或已上传文件 ID；录音小于 8 秒。", "text", true)}${area("options.prompt_text", "示例录音文字", o.prompt_text, "与示例录音一起填写。")}${area("options.minimax_validation_text", "录音校验文本（选填）", o.minimax_validation_text, "最多 200 字符，用于核对录音内容。")}${field("options.minimax_validation_accuracy", "文字匹配阈值", o.minimax_validation_accuracy, "0–1，默认 0.7。", "number")}</div></details>`;
       }
       function clonePlatformFields(p, editor) {
+        if (p.kind === "volcengine") return volcVoiceFields(p, editor);
         if (!isAccountClone()) return "";
         if (isBreezeCloud(p)) {
           if (editor.remoteCreated) return '<p class="muted wide">此音色已保存到 Breeze 在线账号。可调整收藏名称、风格、语速与语调；创建新的声音时选择“新建音色”。</p>';
@@ -3119,58 +3179,6 @@
             "text",
             true,
           );
-        if (p.kind === "volcengine")
-          return (
-            selectField(
-              "options.clone_billing",
-              "音色槽位类型",
-              o.clone_billing,
-              [
-                ["prepaid", "预付费 · 已购买的音色槽位"],
-                ["postpaid", "后付费 · 自定义音色 ID"],
-              ],
-            ) +
-            field(
-              "options.clone_speaker_id",
-              "目标音色 ID",
-              o.clone_speaker_id,
-              "预付费填写控制台 S_ 开头的槽位；后付费使用 8–256 位自定义名称。",
-            ) +
-            selectField(
-              "options.clone_language",
-              "录音语言",
-              o.clone_language,
-              [
-                [0, "中文"],
-                [1, "英文"],
-                [2, "日语"],
-                [3, "西班牙语"],
-                [4, "印尼语"],
-                [5, "葡萄牙语"],
-                [6, "德语"],
-                [7, "法语"],
-                [8, "韩语"],
-                [9, "意大利语"],
-                [10, "泰语"],
-                [11, "越南语"],
-                [12, "俄语"],
-                [13, "菲律宾语"],
-                [14, "马来语"],
-                [15, "阿拉伯语"],
-                [16, "墨西哥西班牙语"],
-                [17, "巴西葡萄牙语"],
-                [19, "波兰语"],
-                [20, "土耳其语"],
-                [21, "瑞典语"],
-              ],
-            ) +
-            selectField(
-              "options.clone_resource_id",
-              "合成使用的复刻资源",
-              o.clone_resource_id,
-              ["seed-icl-2.0", "seed-icl-1.0", "seed-icl-1.0-concurr"],
-            )
-          );
         return "";
       }
       function cloneHint(p, editor) {
@@ -3181,6 +3189,8 @@
         )
           return p.kind === "minimax"
             ? "创建后收藏设计音色 ID 并播放试听，正式合成一次后可从账号目录同步。"
+            : p.kind === "volcengine"
+              ? "创建后保存音色 ID 与训练状态。可单独播放平台试听，或按当前模型参数合成试听。"
             : "创建后会收藏设计音色 ID，并展示平台返回的预览音频；审核状态可在此窗口查询。";
         if (p.kind === "volcengine") {
           if (editor.remoteCreated)
@@ -3335,7 +3345,7 @@
         state.dialogKind = "voices";
         dialog(
           `音色与克隆 · ${p.name}`,
-          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `${voices.length ? `<section class="saved-voice-list"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices)}</div><hr class="split"></section>` : ""}<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步账号音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices) || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? (account && state.voiceEditor.remoteCreated ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">删除云端音色</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
+          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `${voices.length ? `<section class="saved-voice-list"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices)}</div><hr class="split"></section>` : ""}<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步账号音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices) || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-") ? '<button class="maibot-button key" data-action="platform-preview">播放平台试听</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? ((account && state.voiceEditor.remoteCreated) || (p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-")) ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">删除云端音色</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
         );
         if (listMode) renderWorkspacePresets();
       }
@@ -3355,6 +3365,8 @@
         v.model = p.model;
         if (!v.id || !v.name) throw Error("请填写音色名称与音色 ID。");
         v.instructions = v.instructions?.trim() || null;
+        if (p.kind === "volcengine")
+          v.resource_id = isAccountClone() ? editor.options.clone_resource_id : v.resource_id || null;
         v.speed = v.speed === "" || v.speed == null ? null : Number(v.speed);
         if (
           v.speed !== null &&
@@ -3398,6 +3410,8 @@
           m = p.models.find((v) => v.id === editor.originalId);
         if (state.voiceEditor && state.voiceWorkspace)
           p.options = { ...p.options, ...state.voiceEditor.options };
+        if (p.kind === "volcengine" && state.voiceEditor && voiceResource(p).startsWith("seed-icl-"))
+          p.options.clone_resource_id = voiceResource(p);
         m.id = p.model;
         m.name = editor.name;
         m.endpoint = p.base_url ? "" : p.endpoint;
@@ -3596,6 +3610,7 @@
             "voice_prompt",
             "design_preview_text",
             "design_language",
+            "volc_design_image_url", "volc_clone_demo_text", "volc_clone_denoise", "volc_clone_normalize",
             "need_noise_reduction",
             "need_volume_normalization",
             "prompt_audio_url",
@@ -3636,10 +3651,14 @@
             url,
             text: o.reference_text || "",
           });
-          if (state.audioUrl && (design || isBreezeCloud(p) || ["bailian_minimax", "minimax"].includes(p.kind)))
+          if (state.audioUrl && ((design && p.kind !== "volcengine") || isBreezeCloud(p) || ["bailian_minimax", "minimax"].includes(p.kind)))
             state.objectAudio = "voice";
           editor.voice.id = result.voice_id;
           editor.voice.clone_state = result.state;
+          if (p.kind === "volcengine") {
+            editor.voice.available_training_times = result.available_training_times ?? null;
+            editor.voice.clone_model_types = result.model_types || [];
+          }
           editor.voice.origin = design ? "design" : "clone";
           if (standardOpenAI(p)) editor.voice.custom_voice = true;
           if (design) {
@@ -3728,6 +3747,10 @@
           url: editor.voice.id,
         });
         editor.voice.clone_state = result.state;
+        if (p.kind === "volcengine") {
+          editor.voice.available_training_times = result.available_training_times ?? null;
+          editor.voice.clone_model_types = result.model_types || [];
+        }
         applyVoiceDialog();
         await persistVoiceWorkspace();
       }
@@ -4306,13 +4329,47 @@
         const selector = `<div class="field wide"><label for="${prefix}-source">参考音频来源</label><select id="${prefix}-source" class="maibot-input input" data-field="options.reference_source">${choices.map(([value, label]) => `<option value="${value}" ${value === source ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div>`;
         let fields;
         if (source === "file") {
-          fields = `<div class="field wide"><label for="${prefix}-path">参考音频文件</label><div class="input-row"><input id="${prefix}-path" class="maibot-input input mono" data-field="options.reference_file" value="${h(o.reference_file)}" placeholder="reference_audio/sample.wav" maxlength="2000" autocomplete="off" spellcheck="false"><button class="maibot-button key small" data-action="choose-reference" data-reference-scope="${scope}">选择文件</button></div><small>可输入相对路径或绝对路径；相对路径基于插件数据目录。“本地”指运行麦麦的服务器。</small><small class="mono" style="overflow-wrap:anywhere">录音目录：${h(state.referenceAudio.directory || "MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio")}</small>${gpt ? "<small>与麦麦共用文件系统时可直接使用本地录音；异机部署可选择服务端路径。</small>" : ""}${scope !== "clone" ? `<div class="flex-wrap" style="margin-top:10px"><button class="maibot-button key small" data-action="import-reference">从服务器路径导入</button></div><small>${p.kind === "minimax" ? "支持 MP3 / M4A / WAV，单个文件最多 20 MiB。" : "支持 MP3 / WAV，单个文件最多 7 MiB，硅基流动最多 4 MiB。"}可直接放入录音目录，或导入服务器上的已有录音。</small>` : ""}</div>`;
+          fields = `<div class="field wide"><label for="${prefix}-path">参考音频文件</label><div class="input-row"><input id="${prefix}-path" class="maibot-input input mono" data-field="options.reference_file" value="${h(o.reference_file)}" placeholder="reference_audio/sample.wav" maxlength="2000" autocomplete="off" spellcheck="false"><button class="maibot-button key small" data-action="choose-reference" data-reference-scope="${scope}">选择文件</button></div><small>可输入相对路径或绝对路径；相对路径基于插件数据目录。“本地”指运行麦麦的服务器。</small><small class="mono" style="overflow-wrap:anywhere">录音目录：${h(state.referenceAudio.directory || "MaiBot/data/plugins/WhiteCloudOL.maimai-tts-plugin/reference_audio")}</small>${gpt ? "<small>与麦麦共用文件系统时可直接使用本地录音；异机部署可选择服务端路径。</small>" : ""}${scope !== "clone" ? `<div class="flex-wrap" style="margin-top:10px"><button class="maibot-button key small" data-action="import-reference">从服务器路径导入</button></div><small>${p.kind === "volcengine" ? "支持 WAV / MP3 / Ogg / M4A / AAC / PCM，单个文件最多 10 MiB；原始 PCM 使用 24 kHz、单声道 PCM16。" : p.kind === "minimax" ? "支持 MP3 / M4A / WAV，单个文件最多 20 MiB。" : "支持 MP3 / WAV，单个文件最多 7 MiB，硅基流动最多 4 MiB。"}可直接放入录音目录，或导入服务器上的已有录音。</small>` : ""}</div>`;
         } else if (source === "server") {
           fields = `<div class="field wide"><label for="${prefix}-path">GPT-SoVITS 服务端参考音频路径</label><input id="${prefix}-path" class="maibot-input input mono" data-field="options.reference_path" value="${h(o.reference_path)}" placeholder="reference_audio/sample.wav" maxlength="2000"><small>路径由 GPT-SoVITS 服务解析。相对路径基于它的运行目录，也可填写该服务器的绝对路径。</small></div>`;
         } else {
-          fields = `<div class="field wide"><label for="${prefix}-url">公开参考音频 URL</label><input id="${prefix}-url" class="maibot-input input mono" data-field="options.reference_url" type="url" value="${h(o.reference_url)}" placeholder="https://example.com/voice.wav" maxlength="2000"><small>${["bailian_minimax", "minimax"].includes(p.kind) ? "填写可直接读取的 MP3 / M4A / WAV 链接，10 秒至 5 分钟、最多 20 MB。" : "填写可直接下载的 MP3 / WAV 链接。"}</small></div>`;
+          fields = `<div class="field wide"><label for="${prefix}-url">公开参考音频 URL</label><input id="${prefix}-url" class="maibot-input input mono" data-field="options.reference_url" type="url" value="${h(o.reference_url)}" placeholder="https://example.com/voice.wav" maxlength="2000"><small>${p.kind === "volcengine" ? "填写可直接下载的 WAV / MP3 / Ogg / M4A / AAC / PCM 链接，最多 10 MiB。原始 PCM 链接需以 .pcm 结尾。" : ["bailian_minimax", "minimax"].includes(p.kind) ? "填写可直接读取的 MP3 / M4A / WAV 链接，10 秒至 5 分钟、最多 20 MB。" : "填写可直接下载的 MP3 / WAV 链接。"}</small></div>`;
         }
         return `<div class="form-grid">${selector}${fields}</div>`;
+      }
+      function volcSynthesisFields(p) {
+        const o = p.options,
+          resources = [...new Set([...preset(p).resources, o.resource_id])];
+        return selectField("options.auth_mode", "鉴权方式", o.auth_mode,
+            [["api_key", "API Key"], ["access_token", "App ID + Access Token"]]) +
+          field("options.app_id", "App ID", o.app_id, "Access Token 模式必填。") +
+          selectField("options.resource_id", "模型默认合成资源", o.resource_id, resources,
+            "音色单独设置资源后优先使用音色资源。资源控制计费与音色版本，模型 ID 控制合成效果版本。") +
+          selectField("options.volc_instruction_mode", "风格与语调指令", o.volc_instruction_mode,
+            [["context", "整段指令 · context_texts"], ["cot", "分段标签 · COT"]],
+            "ICL 2.0 选择 expressive 后可用两种方式；公版 TTS 2.0 使用整段指令。") +
+          field("options.sample_rate", "采样率（Hz）", o.sample_rate, "Opus 使用 48000，其他格式按平台支持范围选择。", "number") +
+          field("options.volc_loudness_rate", "音量调节", o.volc_loudness_rate, "-50 到 100，0 为默认。", "number") +
+          selectField("options.volc_bit_rate", "MP3 / Opus 比特率", o.volc_bit_rate,
+            [[0, "平台默认"], [16000, "16000 bps"], [32000, "32000 bps"], [64000, "64000 bps"], [160000, "160000 bps"]]) +
+          field("options.volc_pitch", "音调", o.volc_pitch, "-12 到 12，0 为默认。", "number") +
+          field("options.volc_language", "朗读语种", o.volc_language, "留空自动；例如 zh-cn、en、ja、ko、es-mx。") +
+          selectField("options.volc_dialect", "方言", o.volc_dialect,
+            [["", "不指定"], ["beijing", "北京话"], ["dongbei", "东北话"], ["henan", "河南话"],
+             ["shaanxi", "陕西话"], ["shanghai", "上海话"], ["sichuan", "四川话"], ["tianjin", "天津话"], ["yue", "粤语"]],
+            "需使用支持对应方言的音色。") +
+          field("options.volc_silence_duration", "末尾静音（毫秒）", o.volc_silence_duration, "0–30000。", "number") +
+          field("options.volc_emotion", "原生多情感 ID（选填）", o.volc_emotion,
+            "仅对应平台多情感音色，按官方音色列表填写。TTS 2.0 / ICL expressive 优先使用上方语调设置。") +
+          field("options.volc_emotion_scale", "原生情感强度", o.volc_emotion_scale, "1–5，填写原生情感 ID 后生效。", "number") +
+          toggleField("options.volc_tone_fidelity", "还原上传录音的风格", o.volc_tone_fidelity,
+            "只适用于 ICL 2.0 同语种合成，平台会尽可能还原录音中的语气与口音。") +
+          toggleField("options.enable_ssml", "将文本按 SSML 解析", o.enable_ssml, "需音色支持；与 COT 分段标签、LaTeX 分别启用。") +
+          toggleField("options.latex_read", "LaTeX 朗读", o.latex_read, "启用时自动设置平台要求的 Markdown 解析参数。") +
+          toggleField("options.aigc_watermark", "添加 AIGC 水印", o.aigc_watermark) +
+          `<div class="field wide"><label for="volc-pronunciation">发音词典（每行一条）</label>
+            <textarea id="volc-pronunciation" class="maibot-input input mono" data-option-lines="pronunciation_tone" rows="3"
+              placeholder="北京/(bei3)(jing1)">${h(o.pronunciation_tone.join("\n"))}</textarea></div>`;
       }
       function advancedForm(p) {
         const o = { ...defaults, ...p.options };
@@ -4541,33 +4598,7 @@
               o.reference_text,
               "请准确填写参考录音内容。",
             );
-        if (p.kind === "volcengine")
-          fields =
-            selectField("options.auth_mode", "鉴权方式", o.auth_mode, [
-              ["api_key", "API Key"],
-              ["access_token", "App ID + Access Token"],
-            ]) +
-            field(
-              "options.app_id",
-              "App ID",
-              o.app_id,
-              "仅 Access Token 模式必填。",
-            ) +
-            field(
-              "options.resource_id",
-              "资源 ID",
-              o.resource_id,
-              "例如 seed-tts-2.0；复刻音色使用匹配的资源。",
-            ) +
-            field(
-              "options.sample_rate",
-              "采样率（Hz）",
-              o.sample_rate,
-              "Opus 使用 48000 Hz；WAV / PCM / MP3 按平台支持范围选择。",
-              "number",
-            ) +
-            field("options.volc_loudness_rate", "音量调节", o.volc_loudness_rate, "-50 至 100，0 为默认音量。", "number") +
-            selectField("options.volc_bit_rate", "MP3 / Opus 比特率", o.volc_bit_rate, [[0, "平台默认"], [64000, "64000 bps"], [160000, "160000 bps"]]);
+        if (p.kind === "volcengine") fields = volcSynthesisFields(p);
         if (p.kind === "mimo")
           fields =
             '<div class="note wide">模型与音色的专属参数可在对应编辑弹窗中配置。</div>';
@@ -5125,6 +5156,15 @@
           state.objectAudio = state.voiceEditor ? "voice" : "model";
           if (state.voiceWorkspace) showVoiceWorkspace();
           else showModelDialog();
+          $("#dialog .dialog-audio")?.scrollIntoView({ block: "nearest" });
+        },
+        "platform-preview": async () => {
+          const p = state.modelEditor.profile;
+          await runJob("voice_preview", {
+            profile_id: p.id, model_id: p.model, voice_id: state.voiceEditor.voice.id,
+          });
+          state.objectAudio = "voice";
+          showVoiceWorkspace();
           $("#dialog .dialog-audio")?.scrollIntoView({ block: "nearest" });
         },
         "import-reference": () => {
@@ -5887,6 +5927,14 @@
           $("#provider-picker").focus({ preventScroll: true });
           return;
         }
+        if (el.dataset.voiceProperty && state.voiceEditor) {
+          state.voiceEditor.voice[el.dataset.voiceProperty] = el.value;
+          markVoiceEdited();
+          if (el.dataset.voiceProperty === "resource_id") {
+            showVoiceWorkspace();
+            return;
+          }
+        }
         if (el.dataset.presetVoice !== undefined) {
           const set =
             state.voiceWorkspace.selections[state.modelEditor.profile.model];
@@ -5949,7 +5997,9 @@
           state.modelEditor &&
           (el.dataset.field === "model" ||
             el.dataset.field === "options.resource_id" ||
-            el.dataset.voiceProperty === "id")
+            el.dataset.field === "options.clone_resource_id" ||
+            el.dataset.voiceProperty === "id" ||
+            el.dataset.voiceProperty === "resource_id")
         ) {
           const scope = state.voiceEditor ? "voice" : "model",
             section = document.querySelector(`[data-tone-form="${scope}"]`);

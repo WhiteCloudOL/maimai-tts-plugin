@@ -160,15 +160,15 @@ TONE_RULES: List[Dict[str, Any]] = [
     },
     {
         "kind": "volcengine",
-        "model_pattern": r"",
+        "model_pattern": r"(?:seed-tts-2\.0(?:-expressive)?)?",
         "resource_id": "seed-icl-2.0",
         "protocol": "instructions",
         "tones": COMMON,
-        "note": "豆包声音复刻 2.0 支持 context_texts；模型版本留空时可使用固定或动态语调。",
+        "note": "ICL 2.0 的 expressive 效果版本支持语音指令和 COT；通用模型在启用指令时使用 expressive。",
     },
     {
         "kind": "volcengine",
-        "model_pattern": r"(?:seed-tts-2\.0-(?:standard|expressive))?",
+        "model_pattern": r"(?:seed-tts-2\.0(?:-(?:standard|expressive))?)?",
         "resource_id": "seed-tts-2.0",
         "protocol": "instructions",
         "tones": COMMON,

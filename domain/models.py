@@ -10,6 +10,7 @@ from .bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH
 from .compatibility import CompatibilityOptions, template_variables
 from .minimax import FORMATS as MINIMAX_FORMATS, OLD_MODEL_LANGUAGES, emotions as minimax_emotions
 from .breeze import LANGUAGES as BREEZE_LANGUAGES
+from .volcengine import CLONE_LANGUAGES, supports_instructions
 
 ProviderKind = Literal[
     "openai",
@@ -126,7 +127,19 @@ class ProviderOptions(Model):
     app_id: str = Field(default="", max_length=200)
     resource_id: str = Field(default="seed-tts-2.0", max_length=200)
     volc_loudness_rate: int = Field(default=0, ge=-50, le=100)
-    volc_bit_rate: Literal[0, 64000, 160000] = 0
+    volc_bit_rate: Literal[0, 16000, 32000, 64000, 160000] = 0
+    volc_instruction_mode: Literal["context", "cot"] = "context"
+    volc_pitch: int = Field(default=0, ge=-12, le=12)
+    volc_language: str = Field(default="", max_length=40)
+    volc_dialect: str = Field(default="", max_length=40)
+    volc_silence_duration: int = Field(default=0, ge=0, le=30000)
+    volc_tone_fidelity: bool = False
+    volc_emotion: str = Field(default="", max_length=40)
+    volc_emotion_scale: int = Field(default=4, ge=1, le=5)
+    volc_design_image_url: str = Field(default="", max_length=2000)
+    volc_clone_demo_text: str = Field(default="", max_length=300)
+    volc_clone_denoise: bool = False
+    volc_clone_normalize: bool = True
     auth_mode: Literal["api_key", "access_token"] = "api_key"
     clone_speaker_id: str = Field(default="", max_length=256)
     clone_billing: Literal["prepaid", "postpaid"] = "prepaid"
@@ -184,6 +197,8 @@ class Voice(Model):
     speed: Optional[float] = Field(default=None, ge=0.25, le=4)
     custom_voice: Optional[bool] = None
     resource_id: Optional[str] = Field(default=None, max_length=200)
+    available_training_times: Optional[int] = Field(default=None, ge=0)
+    clone_model_types: List[int] = Field(default_factory=list)
     clone_state: Literal["ready", "training", "failed"] = "ready"
     origin: Literal["custom", "preset", "clone", "design", "account"] = "custom"
     creation_reference: Optional[VoiceReference] = None
@@ -288,6 +303,13 @@ class Profile(Model):
             else self.instructions
         )
         validate_tone_settings(effective_tone, self.kind, self.model, self.voice, resource_id, active_instructions)
+        if self.kind == "volcengine":
+            if active_instructions and not supports_instructions(self.model, resource_id):
+                raise ValueError("当前火山资源或模型不支持语音指令，ICL 2.0 请使用 expressive 效果版本")
+            if self.options.clone_language not in CLONE_LANGUAGES:
+                raise ValueError("请选择火山支持的录音语言，枚举值 18 尚未定义")
+            if self.options.volc_design_image_url:
+                validate_url(self.options.volc_design_image_url)
         if self.kind == "compatible":
             validate_custom_instructions(self.options, effective_tone, active_instructions)
         ids = [item.id for item in self.models]

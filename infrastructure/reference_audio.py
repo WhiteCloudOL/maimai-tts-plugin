@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import asyncio
@@ -21,6 +22,25 @@ def reference_mime(data: bytes) -> str:
     if data.startswith(b"ID3") or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
         return "audio/mpeg"
     raise TTSError("参考录音必须是 MP3 或 WAV 音频，不能只修改文件后缀")
+
+
+def volc_reference_format(data: bytes, source: str) -> str:
+    """识别火山注册接口支持的容器；无头 PCM 需要显式使用 .pcm 文件名。"""
+    if data.startswith(b"RIFF") and data[8:12] == b"WAVE":
+        return "wav"
+    if data.startswith(b"OggS"):
+        return "ogg"
+    if len(data) > 12 and data[4:8] == b"ftyp":
+        return "m4a"
+    if data.startswith(b"ADIF") or (
+        len(data) > 1 and data[0] == 0xFF and data[1] & 0xF6 == 0xF0
+    ):
+        return "aac"
+    if data.startswith(b"ID3") or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
+        return "mp3"
+    if Path(urlsplit(source).path).suffix.lower() == ".pcm" and data and len(data) % 2 == 0:
+        return "pcm"
+    raise TTSError("火山参考录音支持 WAV、MP3、Ogg、M4A、AAC，或 24 kHz 单声道 PCM16 的 .pcm 文件")
 
 
 class ReferenceAudioStore:
@@ -46,7 +66,7 @@ class ReferenceAudioStore:
             raise TTSError("相对路径不能超出插件数据目录，请改用绝对路径")
         return resolved
 
-    def _read(self, value: str, limit: int, allow_m4a: bool = False) -> bytes:
+    def _read(self, value: str, limit: int, allow_m4a: bool = False, allow_extended: bool = False) -> bytes:
         try:
             source = self._resolve(value)
             info = source.stat()
@@ -62,12 +82,16 @@ class ReferenceAudioStore:
             raise TTSError(f"无法读取参考音频：{value}（{exc}）") from None
         if len(data) > limit:
             raise TTSError(f"参考音频超过大小上限（{limit / 1024 / 1024:g} MiB）")
-        if not (allow_m4a and len(data) > 12 and data[4:8] == b"ftyp"):
+        if allow_extended:
+            volc_reference_format(data, value)
+        elif not (allow_m4a and len(data) > 12 and data[4:8] == b"ftyp"):
             reference_mime(data)
         return data
 
-    async def read(self, value: str, limit: int = MAX_REFERENCE_BYTES, *, allow_m4a: bool = False) -> bytes:
-        return await asyncio.to_thread(self._read, value, limit, allow_m4a)
+    async def read(
+        self, value: str, limit: int = MAX_REFERENCE_BYTES, *, allow_m4a: bool = False, allow_extended: bool = False
+    ) -> bytes:
+        return await asyncio.to_thread(self._read, value, limit, allow_m4a, allow_extended)
 
     async def local_path(self, value: str) -> str:
         """同机 GPT-SoVITS 只能接收路径；先确认录音可读，再传递绝对路径。"""
@@ -81,7 +105,7 @@ class ReferenceAudioStore:
     def _snapshot(self) -> Dict[str, Any]:
         files = []
         for entry in self.directory.iterdir():
-            if not entry.is_file() or entry.suffix.lower() not in {".wav", ".mp3", ".m4a"}:
+            if not entry.is_file() or entry.suffix.lower() not in {".wav", ".mp3", ".m4a", ".ogg", ".aac", ".pcm"}:
                 continue
             files.append({"path": f"reference_audio/{entry.name}", "name": entry.name, "size": entry.stat().st_size})
             if len(files) >= 100:
@@ -98,20 +122,26 @@ class ReferenceAudioStore:
         await self.prepare()
         return await asyncio.to_thread(self._snapshot)
 
-    async def import_file(self, value: str, *, allow_m4a: bool = False) -> Dict[str, Any]:
+    async def import_file(
+        self, value: str, *, allow_m4a: bool = False, allow_extended: bool = False
+    ) -> Dict[str, Any]:
         def copy() -> str:
-            data = self._read(value, 20 * 1024 * 1024 if allow_m4a else MAX_REFERENCE_BYTES, allow_m4a)
+            limit = MAX_REFERENCE_BYTES
+            if allow_extended:
+                limit = 10 * 1024 * 1024
+            elif allow_m4a:
+                limit = 20 * 1024 * 1024
+            data = self._read(value, limit, allow_m4a, allow_extended)
             source = self._resolve(value)
             if source.parent == self.directory.resolve():
                 return f"reference_audio/{source.name}"
             stem = re.sub(r"[^\w-]", "_", source.stem)[:40] or "voice"
-            suffix = (
-                ".m4a"
-                if allow_m4a and data[4:8] == b"ftyp"
-                else ".wav"
-                if reference_mime(data) == "audio/wav"
-                else ".mp3"
-            )
+            if allow_extended:
+                suffix = "." + volc_reference_format(data, value)
+            elif allow_m4a and data[4:8] == b"ftyp":
+                suffix = ".m4a"
+            else:
+                suffix = ".wav" if reference_mime(data) == "audio/wav" else ".mp3"
             destination = self.directory / f"{stem}-{uuid4().hex[:12]}{suffix}"
             # 排他创建，不覆盖已有录音；导入只复制，不移动或删除原始文件。
             with destination.open("xb") as stream:

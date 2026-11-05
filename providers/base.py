@@ -1,7 +1,7 @@
 """统一协议边界与音频校验。"""
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import asyncio
 import base64
@@ -11,7 +11,7 @@ import wave
 
 from ..domain.models import Audio, Profile, TTSError
 from ..infrastructure.transport import Transport
-from ..infrastructure.reference_audio import reference_mime
+from ..infrastructure.reference_audio import reference_mime, volc_reference_format
 from .endpoints import api_url
 
 
@@ -86,6 +86,9 @@ class CloneResult:
     state: Literal["ready", "training", "failed"]
     preview: Optional[Audio] = None
     name: str = ""
+    preview_url: str = ""
+    available_training_times: Optional[int] = None
+    model_types: Tuple[int, ...] = ()
 
 
 class Provider:
@@ -117,15 +120,25 @@ class Provider:
         path = paths[operation]
         return api_url(profile.base_url, self.api_prefix, path, websocket=websocket, model=model) if path else ""
 
-    async def reference_bytes(self, profile: Profile, source: str = "", limit: int = 7 * 1024 * 1024) -> bytes:
+    async def reference_bytes(
+        self, profile: Profile, source: str = "", limit: int = 7 * 1024 * 1024, *, allow_extended: bool = False
+    ) -> bytes:
         """在工作线程读取本地录音，或通过独立无凭据请求下载录音。"""
+        location = source or (
+            profile.options.reference_file if profile.options.reference_source == "file" else profile.options.reference_url
+        )
         if profile.options.reference_source == "file":
-            data = await self.http.reference_files.read(source or profile.options.reference_file, limit)
+            data = await self.http.reference_files.read(
+                location, limit, allow_extended=allow_extended,
+            )
         elif profile.options.reference_source == "url":
-            data = await self.http.download(source or profile.options.reference_url, limit)
+            data = await self.http.download(location, limit)
         else:
             raise TTSError("此平台的参考音频来源应选择本地文件或公开 URL")
-        reference_mime(data)
+        if allow_extended:
+            volc_reference_format(data, location)
+        else:
+            reference_mime(data)
         return data
 
     async def reference_audio(self, profile: Profile, source: str = "", limit: int = 7 * 1024 * 1024) -> str:
@@ -174,6 +187,9 @@ class Provider:
 
     async def clone_status(self, profile: Profile, voice_id: str) -> CloneResult:
         raise TTSError("此平台的音色创建接口直接返回结果，请使用账号音色或音色 ID")
+
+    async def voice_preview(self, profile: Profile, voice_id: str) -> Audio:
+        raise TTSError("此平台未提供独立的平台试听，请使用合成试听")
 
     async def design(self, profile: Profile, name: str) -> CloneResult:
         raise TTSError("此模型尚未提供声音设计接口")

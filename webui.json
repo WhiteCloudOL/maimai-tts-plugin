@@ -93,6 +93,7 @@
                 "voices",
                 "clone",
                 "clone_status",
+                "voice_preview",
                 "design",
                 "update_voice",
                 "delete_voice"

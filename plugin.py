@@ -119,7 +119,9 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
 
     @API("studio_import_reference", description="将服务器上的录音复制到插件参考音频目录")
     async def studio_import_reference(self, path: str, kind: str = "") -> Dict[str, Any]:
-        result = await self.service.http.reference_files.import_file(path, allow_m4a=kind == "minimax")
+        result = await self.service.http.reference_files.import_file(
+            path, allow_m4a=kind == "minimax", allow_extended=kind == "volcengine",
+        )
         self.service.log.info("参考录音已导入", file=result["path"])
         return result
 

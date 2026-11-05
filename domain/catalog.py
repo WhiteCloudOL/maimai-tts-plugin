@@ -12,6 +12,7 @@ from .breeze import (
     LOCAL_BASE_URL as BREEZE_LOCAL_URL,
     MODELS as BREEZE_MODELS,
 )
+from .volcengine import CLONE_LANGUAGE_NAMES, CLONE_RESOURCES, RESOURCES
 
 
 OPENAI_MODELS = ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "gpt-4o-mini-tts-2025-03-20", "tts-1", "tts-1-hd"]
@@ -276,22 +277,26 @@ CATALOG: Dict[str, Dict[str, Any]] = {
     },
     "volcengine": {
         "name": "火山引擎",
-        "tone_hint": "语调控制请搭配 seed-tts-2.0；使用 seed-icl-2.0 复刻音色时，将模型版本留空可启用语调。",
+        "tone_hint": "公版 TTS 2.0 使用语音指令；ICL 2.0 的 expressive 支持语音指令和 COT。音色可单独绑定资源。",
         "tag": "豆包语音",
         "mark": "DB",
         "color": "#bc7965",
         "endpoint": "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
         "base_url": "https://openspeech.bytedance.com/api/v3",
-        "model": "",
+        "model": "seed-tts-2.0",
         "voice": "zh_female_vv_uranus_bigtts",
-        "models": ["seed-tts-2.0-standard", "seed-tts-2.0-expressive"],
+        "models": ["seed-tts-2.0", "seed-tts-2.0-standard", "seed-tts-2.0-expressive"],
+        "design_models": ["seed-tts-2.0", "seed-tts-2.0-standard", "seed-tts-2.0-expressive"],
+        "resources": RESOURCES,
+        "clone_resources": CLONE_RESOURCES,
+        "clone_languages": list(CLONE_LANGUAGE_NAMES.items()),
         "voices": ["zh_female_vv_uranus_bigtts"],
         "formats": ["mp3", "wav", "pcm", "opus"],
         "models_url": "",
         "voices_url": "",
         "clone_url": "https://openspeech.bytedance.com/api/v3/tts/voice_clone",
         "note": (
-            "V3 HTTP 单向流式协议；支持 API Key 或 App ID + Access Token。可用本地录音创建复刻音色，并查询训练状态。"
+            "V3 HTTP 单向流式协议；支持 API Key 或 App ID + Access Token，提供音色克隆、文字/图片音色设计和状态查询。"
         ),
         "docs": "https://docs.volcengine.com/docs/doubao-voice/unidirectional-streaming-text-to-speech-http?lang=zh",
     },
