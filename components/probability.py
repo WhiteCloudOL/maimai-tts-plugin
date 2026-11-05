@@ -3,7 +3,7 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from maibot_sdk import HookHandler, ReplyExtension
-from maibot_sdk.types import HookMode
+from maibot_sdk.types import ErrorPolicy, HookMode
 from random import random
 from time import monotonic
 from typing import Any, Dict, List, Optional
@@ -273,9 +273,10 @@ class ProbabilityMixin:
     @HookHandler(
         "send_service.before_send",
         name="arrange_probability_reply_quote",
-        description="按实际引用方式保留概率语音回复的正文，避免空引用卡片",
+        description="按实际引用方式分开发送概率语音的文字和语音，避免正文丢失或空引用",
         mode=HookMode.BLOCKING,
-        timeout_ms=1000,
+        timeout_ms=45000,
+        error_policy=ErrorPolicy.ABORT,
     )
     async def arrange_probability_reply_quote(
         self, message: Optional[Dict[str, Any]] = None, set_reply: bool = False, **kwargs: Any
@@ -300,10 +301,10 @@ class ProbabilityMixin:
         quoted = set_reply or any(
             isinstance(segment, dict) and segment.get("type") == "reply" for segment in segments
         )
-        if not quoted:
+        if not quoted and not self.features.probability_keep_text:
             return {"action": "continue"}
 
-        keep_voice = self.features.probability_quote_keep_text
+        keep_voice = not quoted or self.features.probability_quote_keep_text
         has_text = any(
             isinstance(segment, dict) and segment.get("type") == "text"
             and isinstance(segment.get("data"), str) and segment["data"].strip() for segment in segments
@@ -313,16 +314,28 @@ class ProbabilityMixin:
             if segment is voice:
                 if not has_text:
                     arranged.extend(deepcopy(state.text_segments))
-                if keep_voice:
-                    arranged.append(deepcopy(voice))
             else:
                 arranged.append(deepcopy(segment))
-        if arranged == segments:
-            return {"action": "continue"}
+        if keep_voice:
+            # 先消费自有音频状态，独立文字发送再次触发本 Hook 时不会递归转换。
+            # 引用卡片随文字发送；原语音继续使用 Host 已确定的路由与被动回复上下文。
+            if set_reply and not any(segment.get("type") == "reply" for segment in arranged):
+                target = kwargs.get("reply_message_id")
+                if not isinstance(target, str) or not target:
+                    raise TTSError("引用语音回复缺少被引用消息 ID")
+                arranged.insert(0, {"type": "reply", "data": {"target_message_id": target}})
+            display_text = "".join(segment["data"] for segment in arranged if segment.get("type") == "text")
+            await self._send_tts_message(
+                arranged, key[0], display_text,
+                storage_message=kwargs.get("storage_message", True),
+                show_log=kwargs.get("show_log", True),
+            )
+            arranged = [deepcopy(voice)]
+            set_reply = False
         updated = dict(message, raw_message=arranged, processed_plain_text="")
-        # reply_to 仍是 QQ 官方被动回复的发送上下文；引用组件、目标和路由字段完整保留。
+        # reply_to 仍是 QQ 官方被动回复的发送上下文；原语音的目标和路由字段沿用宿主消息。
         self.service.log.debug(
-            "已整理概率语音引用回复", stream_id=key[0], reply_id=state.reply_id,
+            "已整理概率语音回复", stream_id=key[0], reply_id=state.reply_id,
             mode="text_and_voice" if keep_voice else "text_only",
         )
         return {"action": "continue", "modified_kwargs": dict(kwargs, message=updated, set_reply=set_reply)}

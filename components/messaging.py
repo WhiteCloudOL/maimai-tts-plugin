@@ -216,10 +216,8 @@ class MessagingMixin:
     ) -> Audio:
         with trace_scope():
             synthesized = await self._synthesize_audio(text=text, voice=voice, speed=speed)
-            message_segments: List[Dict[str, Any]] = []
-            if include_text:
-                message_segments.append({"type": "text", "content": clean_display_text(text)})
-            message_segments.append(await asyncio.to_thread(voice_segment, synthesized))
+            display_text = clean_display_text(text)
+            segment = await asyncio.to_thread(voice_segment, synthesized)
             started = monotonic()
             self.service.log.info(
                 "发送语音开始",
@@ -228,28 +226,48 @@ class MessagingMixin:
                 audio_bytes=len(synthesized.data),
                 include_text=include_text,
             )
-            try:
-                sent = await self.ctx.send.hybrid(
-                    message_segments,
-                    stream_id,
-                    processed_plain_text=clean_display_text(text),
-                    return_details=True,
-                    # 官方适配器无需依赖消息回流即可记录自己的语音；沿用宿主的自身回复标识。
-                    sync_to_maisaka_history=True,
-                    maisaka_source_kind="guided_reply",
+            # QQ 的语音消息可能隐藏同条消息中的文字，按顺序单独投递并核对两次回执。
+            if include_text:
+                await self._send_tts_message(
+                    [{"type": "text", "data": display_text}], stream_id, display_text,
                 )
-            except Exception as exc:
-                self.service.log.unexpected("发送语音调用异常", exc, stream_id=stream_id)
-                raise TTSError(f"语音发送调用失败（{type(exc).__name__}），请查看适配器日志") from None
-            success = sent.get("sent") is True if isinstance(sent, dict) else sent is True
+            await self._send_tts_message([segment], stream_id, display_text)
             elapsed_ms = round((monotonic() - started) * 1000)
-            if not success:
-                self.service.log.error("发送语音失败", stream_id=stream_id, elapsed_ms=elapsed_ms)
-                raise TTSError("语音已合成，但发送到聊天流失败")
             self.service.log.info(
                 "发送语音成功", stream_id=stream_id, audio_bytes=len(synthesized.data), elapsed_ms=elapsed_ms
             )
             return synthesized
+
+    async def _send_tts_message(
+        self,
+        segments: List[Dict[str, Any]],
+        stream_id: str,
+        processed_plain_text: str,
+        *,
+        storage_message: bool = True,
+        show_log: bool = True,
+    ) -> None:
+        """单独发送文字或语音，失败时让调用方终止后续投递。"""
+        kind = "语音" if any(segment["type"] == "voice" for segment in segments) else "文字"
+        try:
+            sent = await self.ctx.send.hybrid(
+                segments,
+                stream_id,
+                processed_plain_text=processed_plain_text,
+                storage_message=storage_message,
+                show_log=show_log,
+                return_details=True,
+                # 官方适配器无需依赖消息回流即可记录自身回复；分别记录文字与语音回执。
+                sync_to_maisaka_history=True,
+                maisaka_source_kind="guided_reply",
+            )
+        except Exception as exc:
+            self.service.log.unexpected(f"发送{kind}调用异常", exc, stream_id=stream_id)
+            raise TTSError(f"{kind}发送调用失败（{type(exc).__name__}），请查看适配器日志") from None
+        success = sent.get("sent") is True if isinstance(sent, dict) else sent is True
+        if not success:
+            self.service.log.error(f"发送{kind}失败", stream_id=stream_id)
+            raise TTSError(f"{kind}发送到聊天流失败")
 
     async def _synthesize_audio(
         self,
