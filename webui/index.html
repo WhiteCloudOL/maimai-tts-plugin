@@ -4735,6 +4735,8 @@
       function closeDialog(value = false) {
         const modal = $("#dialog");
         modal.close();
+        // 关闭后移除旧控件，避免页面保存时继续更新已关闭的音色状态栏。
+        $("#dialog-body").replaceChildren();
         modal.before($("#task-status"), $("#toast"));
         document.documentElement.classList.remove("modal-open");
         if (dialogResolve) {
