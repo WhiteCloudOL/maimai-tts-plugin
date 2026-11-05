@@ -1,6 +1,6 @@
 """以实际请求身份生成内存缓存键，编辑名称、收藏和路由调整保持复用。"""
 
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 import hashlib
 import hmac
@@ -94,3 +94,10 @@ class CacheKeys:
         for key in management:
             values["options"].pop(key, None)
         return self.digest({"profile": values, "text": text})
+
+    def breeze(self, requests: List[Tuple[Profile, str]]) -> Optional[str]:
+        """按实际区段、独立指令和事件位置区分完整语音，沿用动态参考录音的禁缓存规则。"""
+        keys = [self.speech(profile, text) for profile, text in requests]
+        if any(key is None for key in keys):
+            return None
+        return self.digest({"breeze_sections_v1": keys})

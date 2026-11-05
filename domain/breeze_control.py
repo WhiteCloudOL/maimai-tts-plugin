@@ -85,55 +85,42 @@ def event_tags(language: str = "", *, local: bool = False) -> Dict[str, List[str
     return result
 
 
+# 官方各语言表按相同事件顺序排列：笑、轻笑、叹气、耳语、唱歌、哼歌、停顿。
+COMMON_EVENT_INDICES = (0, 1, 8, 13, 16, 17, 19)
+PAUSE_EVENT_INDEX = 19
+
+
 def control_prompt(language: str, *, automatic: bool, tags: Dict[str, List[str]]) -> str:
-    """三种提示语言使用相同的控制语法与标签集合。"""
-    table = "\n".join(f"{code}: {' '.join(values)}" for code, values in tags.items())
+    """只注入常用事件和停顿规则；完整标签表由语调查询工具按需返回。"""
+    table = "\n".join(f"{code}: {' '.join(values[index] for index in COMMON_EVENT_INDICES)}" for code, values in tags.items())
     descriptions = {
         "zh": (
-            "【Breeze 动态声音控制】只在本次语音正文中使用以下标记。"
-            "可在合适的位置少量插入表内音频事件，按朗读语言精确使用标签，不要自造或翻译标签。"
-            "自由语气使用 [语气:描述]，也支持 [用温柔的语气]；标记作用于后文，直到下一个自由语气标记。"
-            "每段描述用与台词相同的语言，最多 200 字符，一条回复最多 8 个标记。"
-            "插件将其提取为独立指令并逐段合成；它们不作为台词朗读。"
-            "无需自由描述时可以沿用整体默认语调，或使用允许列表内的唯一 [mmtts:ID] 头部标签。"
-            "局部自由语气优先于整体语调。正文要有实际台词，普通括号内容不会被当作指令。"
-            "例如：[语气:轻声而温柔][轻笑]你终于来了。[语气:认真且坚定]我们一起面对。"
-            "所有控制标记均从聊天保留文字中隐藏。"
+            "Breeze：用 [语气:描述]（也支持 [用温柔的语气]）控制后文，至下一标记前；每段 1–200 字，一条最多 8 个。"
+            "描述与台词同语言；可省略标记沿用默认语调，或在开头使用一个允许的 [mmtts:ID]。"
+            "用标点组织停连，转折或切换语气前按需插入表内停顿标签，一处一个，不连续堆叠或自造时长写法。"
+            "事件留在合成正文；自由语气提取成指令，聊天文字隐藏标记。台词必须完整，普通括号保留。"
+            "下面是常用事件；其他事件先查询 mmtts_tone_options。"
         ),
         "en": (
-            "[Breeze dynamic voice control] Use these controls only in speech input. Insert a few listed audio events "
-            "at suitable positions, using the exact spelling for the spoken language; never invent or translate tags. "
-            "Use [style:description] for free delivery directions; [语气:描述] and [用温柔的语气] are also accepted. "
-            "A direction applies until the next direction marker. Write it in the dialogue language, at most 200 "
-            "characters each and eight markers per reply. The plugin extracts separate instructions and synthesizes "
-            "the sections in order. Without a free direction, use the configured default or one allowed [mmtts:ID] "
-            "leading tag. Local directions take precedence over the overall tone. Include spoken dialogue; ordinary "
-            "brackets are not instructions. Example: [style:soft and warm](laughs)You are here."
-            "[style:serious and firm]We can face this together. Control markers are hidden from retained chat text."
+            "Breeze: [style:direction] (also [语气:描述] or [用温柔的语气]) applies until the next marker; "
+            "1–200 characters each, eight markers per reply. Match the dialogue language. Omit markers for the "
+            "default tone, or use one allowed leading [mmtts:ID]. Use punctuation for phrasing and one listed pause "
+            "where needed before a contrast or style change; do not stack pauses or invent duration syntax. "
+            "Events stay in speech input; directions become separate instructions. Chat text hides controls. "
+            "Include complete dialogue; preserve ordinary brackets. Common events follow; query mmtts_tone_options for others."
         ),
         "ja": (
-            "【Breeze の動的な音声制御】音声用の本文にだけ制御タグを使用してください。"
-            "下表の音声イベントを適切な位置に少量挿入し、朗読言語に対応する表記を厳密に使ってください。"
-            "タグの創作や独自翻訳は禁止です。自由な話し方は [話し方:説明] で指定し、"
-            "[语气:描述] や [用温柔的语气] も使用できます。次の指定までの本文に適用されます。"
-            "説明は台詞と同じ言語で各 200 文字以内、返信ごとに最大 8 個にしてください。"
-            "プラグインが独立した指示に変換し、区間ごとに順番に合成します。"
-            "自由指定がなければ設定済みの語調か、許可された唯一の先頭タグ [mmtts:ID] を使用できます。"
-            "局所指定は全体の語調より優先されます。実際の台詞を含め、通常の括弧を指示として使わないでください。"
-            "例：[話し方:優しく静かに]会えてうれしいです。[話し方:真剣に]一緒に考えましょう。"
-            "制御タグはチャットに残す本文から除去されます。"
+            "Breeze：[話し方:説明]（[语气:描述]、[用温柔的语气] も可）は次の指定まで適用。"
+            "説明は台詞と同じ言語で各 1–200 文字、返信ごとに最大 8 個。省略時は既定の語調、"
+            "または許可された [mmtts:ID] を先頭に一つ使えます。句読点で区切り、転換や語調変更の前に"
+            "必要なら表の間合いタグを一つ入れてください。連続挿入や独自の秒数指定は禁止です。"
+            "イベントは合成本文に残し、話し方は独立した指示に変換、チャットではタグを隠します。"
+            "台詞を省略せず、通常の括弧は保持。下表以外は mmtts_tone_options で確認してください。"
         ),
     }
     placement = {
-        "zh": "用于当前回复正文或 mmtts_speak 的 text；"
-        if automatic
-        else "仅用于 mmtts_speak 的 text，普通文字回复不要添加；",
-        "en": "Apply to this reply or mmtts_speak.text. "
-        if automatic
-        else "Apply only to mmtts_speak.text; keep ordinary replies plain. ",
-        "ja": "今回の返信本文または mmtts_speak.text に適用します。"
-        if automatic
-        else "mmtts_speak.text だけに適用し、通常の返信には付けないでください。",
+        "zh": "仅用于本次语音回复；" if automatic else "仅用于 mmtts_speak.text，普通文字不加标记；",
+        "en": "For this speech reply only. " if automatic else "Only in mmtts_speak.text; keep ordinary replies plain. ",
+        "ja": "今回の音声返信だけに使用。" if automatic else "mmtts_speak.text だけに使用し、通常の返信には付けないでください。",
     }
-    description = descriptions[language].replace("(laughs)", tags.get("en", [""])[0])
-    return placement[language] + description + "\n" + table
+    return placement[language] + descriptions[language] + "\n" + table

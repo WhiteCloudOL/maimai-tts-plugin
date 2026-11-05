@@ -5,7 +5,7 @@ from maibot_sdk import HookHandler, Tool
 from maibot_sdk.types import HookMode
 from typing import Any, Dict, List, Optional
 
-from ..domain.breeze_control import control_prompt, event_tags
+from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tags
 from ..domain.intonation import tone_capability, tone_prompt
 from ..domain.models import Profile, TTSError
 
@@ -39,11 +39,13 @@ class IntonationMixin:
             "format": "[mmtts:语调ID]正文" if profile.tone.mode == "dynamic" else "直接填写朗读正文",
         }
         if profile.kind == "breeze" and profile.tone.mode == "dynamic":
+            tags = event_tags(
+                profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
+            )
             result.update(
                 format="[语气:描述][音频事件]正文；也支持 [用温柔的语气] 和可选的 [mmtts:语调ID] 头部标签",
-                audio_events=event_tags(
-                    profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
-                ),
+                audio_events=tags,
+                pause_events={code: values[PAUSE_EVENT_INDEX] for code, values in tags.items()},
                 free_direction={"scope": "到下一个自由语气标记前", "max_characters": 200, "max_markers": 8},
                 retained_text="移除控制标记后的正文",
             )

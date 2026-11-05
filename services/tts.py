@@ -318,7 +318,10 @@ class TTSService:
                     partial(self._synthesize_breeze, client, requests) if requests is not None
                     else partial(client.synthesize, selected, speech_text),
                 )
-                key = self.cache_keys.speech(selected, speech_text)
+                key = (
+                    self.cache_keys.breeze(requests) if requests is not None
+                    else self.cache_keys.speech(selected, speech_text)
+                )
                 namespace = f"speech:{self.cache_keys.scope(selected)}"
                 cached = await self.cache.get(
                     namespace,
