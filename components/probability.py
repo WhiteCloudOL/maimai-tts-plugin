@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncio
 
+from ..domain.breeze_control import parse_breeze_text
 from ..domain.intonation import parse_tone_tag
 from ..domain.models import TTSError
 from ..infrastructure.voice_codec import voice_segment
@@ -23,6 +24,7 @@ class ProbabilityReplyState:
     stream_id: str
     should_convert: bool
     expires_at: float
+    breeze_controls: bool = False
 
 
 @dataclass
@@ -138,6 +140,18 @@ class ProbabilityMixin:
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
         targeted = self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
         tag_error = parsed.error
+        breeze = parse_breeze_text(parsed.text)
+        breeze_controls = False
+        if targeted and breeze.marked:
+            profile = self.primary_tone_profile()
+            breeze_controls = profile is not None and profile.kind == "breeze"
+            if breeze_controls:
+                tag_error = tag_error or breeze.error
+                if any(part.direction for part in breeze.parts) and profile.tone.mode != "dynamic":
+                    tag_error = "Breeze 自由语气需要在当前模型或音色中启用动态语调"
+                if not breeze.display_text:
+                    tag_error = "自动语音的控制标记后需要填写朗读正文"
+        display_text = breeze.display_text if breeze_controls else parsed.text
         if parsed.tone and not tag_error:
             profile = self.primary_tone_profile()
             if profile is None:
@@ -162,11 +176,11 @@ class ProbabilityMixin:
             else:
                 if tag_error:
                     reason = "invalid_tone_tag"
-                elif not parsed.text.strip():
+                elif not display_text.strip():
                     reason = "empty_response"
                 elif self._has_rich_reply_attachment(reply_tool_args):
                     reason = "rich_attachment"
-                elif not self._is_probability_text_length_allowed(parsed.text.strip()):
+                elif not self._is_probability_text_length_allowed(display_text.strip()):
                     reason = "text_length"
                 else:
                     should_convert = self._sample_probability()
@@ -175,22 +189,23 @@ class ProbabilityMixin:
                     stream_id=session_id,
                     should_convert=should_convert,
                     expires_at=monotonic() + 600,
+                    breeze_controls=breeze_controls,
                 )
         self.service.log.debug(
             "整轮语音判定",
             stream_id=session_id,
             reply_id=reply_id,
             convert=should_convert,
-            text_length=len(parsed.text.strip()),
+            text_length=len(display_text.strip()),
             reason=reason,
             probability=self.features.probability,
         )
-        if not parsed.tagged:
+        if not parsed.tagged and not breeze_controls:
             return {"action": "continue"}
         modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args)
-        modified["response"] = response if should_convert else (parsed.text or "语音语调标签格式有误，请检查语调设置。")
+        modified["response"] = response if should_convert else (display_text or "语音语调标签格式有误，请检查语调设置。")
         if should_convert:
-            # 动态语调标签随这一条回复交给扩展；正文保持完整，避免拆分或错字处理损坏控制标签。
+            # 语调与局部事件随这一条回复交给扩展；正文保持完整，避免拆分或错字处理损坏控制标签。
             modified["skip_post_process"] = True
         return {"action": "continue", "modified_kwargs": modified}
 
@@ -220,7 +235,7 @@ class ProbabilityMixin:
         self._remove_expired_probability_states()
         # 先消费本次回复的判定，再执行耗时合成；并发回复与普通发送都无法借用这个结果。
         state = self._probability_reply_states.pop(reply_id, None)
-        cleaned = self._clean_probability_messages(messages)
+        cleaned = self._clean_probability_messages(messages, breeze=state is not None and state.breeze_controls)
         if (
             not self.config.plugin.enabled
             or not self.features.probability_enabled
@@ -350,7 +365,7 @@ class ProbabilityMixin:
             audio = await self._synthesize_audio(text=original)
             segment = await asyncio.to_thread(voice_segment, audio)
             # voice 的 data 是已知朗读正文，二进制由独立字段传递；Host 据此记录语音内容。
-            segment["data"] = parse_tone_tag(original).text
+            segment["data"] = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
             if keep_text:
                 message["segments"].append(segment)
             else:
@@ -372,14 +387,15 @@ class ProbabilityMixin:
         return "".join(texts).strip() or None
 
     @staticmethod
-    def _clean_probability_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _clean_probability_messages(messages: List[Dict[str, Any]], *, breeze: bool = False) -> List[Dict[str, Any]]:
         cleaned = deepcopy(messages)
         for message in cleaned:
             for segment in message["segments"]:
                 if segment.get("type") == "text":
                     parsed = parse_tone_tag(segment["data"])
-                    if parsed.tagged:
-                        segment["data"] = parsed.text or "语音语调标签格式有误，请检查语调设置。"
+                    display_text = parse_breeze_text(parsed.text).display_text if breeze else parsed.text
+                    if parsed.tagged or display_text != segment["data"]:
+                        segment["data"] = display_text or "语音语调标签格式有误，请检查语调设置。"
         return cleaned
 
     def _is_probability_text_length_allowed(self, text: str) -> bool:

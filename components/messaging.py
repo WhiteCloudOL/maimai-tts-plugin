@@ -131,7 +131,9 @@ class MessagingMixin:
             "- text：string，必填，要转换为语音的完整回复文本。\n"
             "- voice：string，可选，用户明确指定临时音色时填写，日常回复沿用整体路由。\n"
             "- speed：number，可选，0.25 到 4.0；是否允许由插件配置决定。\n"
-            "直接传入朗读正文，语调按当前路由配置及本次工具说明执行。\n"
+            "传入完整朗读正文，语调按当前路由配置及本次工具说明执行。\n"
+            "Breeze 动态模式允许按本次说明的标签表插入局部音频事件；自由语气用 [语气:描述]，"
+            "作用到下一个自由语气标记前。插件提取独立指令，控制标记不显示在聊天保留文字中。\n"
             "成功结果表示语音已经发送到聊天流，本轮回复随即完成。\n"
             "聊天流 ID 由 MaiBot 工具执行上下文自动注入，不需要也不允许模型自行填写。"
         ),
@@ -139,7 +141,7 @@ class MessagingMixin:
             ToolParameterInfo(
                 name="text",
                 param_type=ToolParamType.STRING,
-                description="要合成为语音的文本",
+                description="完整朗读文本；Breeze 动态控制语法与可用事件以本次工具说明为准",
                 required=True,
             ),
             ToolParameterInfo(
@@ -199,7 +201,7 @@ class MessagingMixin:
         return {
             "success": True,
             "message": "语音已发送",
-            "content": f"语音已成功发送到当前聊天流，本轮回复已完成。朗读内容：{clean_display_text(text)}",
+            "content": f"语音已成功发送到当前聊天流，本轮回复已完成。朗读内容：{audio.display_text if audio.display_text is not None else clean_display_text(text)}",
             "sent": True,
             "stop_after_execution": True,
             "audio_bytes": len(audio.data),
@@ -216,7 +218,7 @@ class MessagingMixin:
     ) -> Audio:
         with trace_scope():
             synthesized = await self._synthesize_audio(text=text, voice=voice, speed=speed)
-            display_text = clean_display_text(text)
+            display_text = synthesized.display_text if synthesized.display_text is not None else clean_display_text(text)
             segment = await asyncio.to_thread(voice_segment, synthesized)
             started = monotonic()
             self.service.log.info(
@@ -227,7 +229,7 @@ class MessagingMixin:
                 include_text=include_text,
             )
             # QQ 的语音消息可能隐藏同条消息中的文字，按顺序单独投递并核对两次回执。
-            if include_text:
+            if include_text and display_text:
                 await self._send_tts_message(
                     [{"type": "text", "data": display_text}], stream_id, display_text,
                 )

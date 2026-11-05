@@ -645,6 +645,7 @@ class Audio:
     response_format: str
     provider_id: str = ""
     request_id: str = ""
+    display_text: Optional[str] = None
 
 
 def safe_validation_error(error: Exception) -> str:

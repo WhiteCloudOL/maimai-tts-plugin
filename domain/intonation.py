@@ -46,7 +46,7 @@ TONE_RULES: List[Dict[str, Any]] = [
         "model_pattern": r".*",
         "protocol": "instructions",
         "tones": COMMON,
-        "note": "Breeze 本地API 与官方在线支持自然语言风格、情感和节奏指令；语调由模型或音色单独配置。",
+        "note": "Breeze 支持风格与节奏指令；动态模式还支持局部音频事件与 [语气:描述]，控制标记不显示在聊天保留文字中。",
     },
     {
         "kind": "minimax",

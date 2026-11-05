@@ -8,13 +8,14 @@ from functools import partial
 from logging import Logger
 from pydantic import ValidationError
 from time import monotonic
-from typing import Any, Callable, Coroutine, Deque, Dict, List, Optional, Set, TypeVar
+from typing import Any, Callable, Coroutine, Deque, Dict, List, Optional, Set, Tuple, TypeVar
 
 import asyncio
 import hashlib
 import json
 
 from ..settings.config import RuntimeSection
+from ..domain.breeze_control import parse_breeze_text
 from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, safe_validation_error
 from ..providers import PROVIDERS
 from ..providers.base import Provider
@@ -23,8 +24,9 @@ from ..infrastructure.diagnostics import Diagnostics, trace_scope
 from ..infrastructure.transport import Transport
 from ..infrastructure.voice_codec import SILK_HEADER, encode_silk
 from ..infrastructure.cache import AsyncResultCache
+from ..infrastructure.breeze_audio import join_breeze_audio
 from ..domain.intonation import parse_tone_tag
-from .intonation import apply_tone, validate_requested_tone
+from .intonation import apply_tone, breeze_requests, clean_display_text, validate_requested_tone
 from .cache_keys import CacheKeys
 
 
@@ -137,7 +139,9 @@ class TTSService:
                 ttl=self.settings.audio_cache_ttl_seconds,
                 size=lambda value: len(value.data),
             )
-            result = replace(cached.value, provider_id=audio.provider_id, request_id=audio.request_id)
+            result = replace(
+                cached.value, provider_id=audio.provider_id, request_id=audio.request_id, display_text=audio.display_text
+            )
             self.log.debug("转码结果缓存", result=cached.source)
         except TTSError as exc:
             self.log.error("语音转码失败", error=str(exc), elapsed_ms=round((monotonic() - started) * 1000))
@@ -233,7 +237,11 @@ class TTSService:
                 raise TTSError("请先在整体路由选择服务商/模型")
             route = [config.primary, *config.fallbacks]
         failures: List[str] = []
-        if parsed.tone is not None:
+        breeze_input = parse_breeze_text(text) if profiles[route[0].provider_id].kind == "breeze" else None
+        if breeze_input is not None and breeze_input.error:
+            raise TTSError(breeze_input.error)
+        free_directions = breeze_input is not None and any(part.direction for part in breeze_input.parts)
+        if parsed.tone is not None or free_directions:
             first = route[0]
             initial = profiles[first.provider_id]
             if first.model_id:
@@ -244,7 +252,10 @@ class TTSService:
             if voice is not None:
                 values["voice"] = voice
             try:
-                validate_requested_tone(Profile.model_validate(values).with_selected_voice(), parsed.tone)
+                initial = Profile.model_validate(values).with_selected_voice()
+                validate_requested_tone(initial, parsed.tone)
+                if free_directions and initial.tone.mode != "dynamic":
+                    raise TTSError("Breeze 自由语气需要在当前模型或音色中启用动态语调")
             except ValidationError as exc:
                 raise TTSError(safe_validation_error(exc)) from None
         self.log.info(
@@ -287,8 +298,11 @@ class TTSService:
                 if speed is not None:
                     # 临时语速是本次调用的最终覆盖，优先于模型及音色保存的语速。
                     selected = Profile.model_validate({**selected.model_dump(), "speed": speed})
+                requests = breeze_requests(selected, text, parsed.tone) if selected.kind == "breeze" else None
                 selected, emotion = apply_tone(selected, parsed.tone)
-                if emotion:
+                if requests is not None and free_directions:
+                    self.log.info("应用 Breeze 分段语气", provider=selected.name, model=selected.model, sections=len(requests))
+                elif emotion:
                     self.log.info(
                         "应用语音语调",
                         provider=selected.name,
@@ -297,8 +311,14 @@ class TTSService:
                         tone=emotion,
                     )
                 client = self.provider(selected)
-                request_audio = partial(self.execute, partial(client.synthesize, selected, text))
-                key = self.cache_keys.speech(selected, text)
+                # 首选 Breeze 的备选平台使用干净台词，避免把已识别的控制标记读给用户。
+                speech_text = breeze_input.display_text if breeze_input is not None and selected.kind != "breeze" else text
+                request_audio = partial(
+                    self.execute,
+                    partial(self._synthesize_breeze, client, requests) if requests is not None
+                    else partial(client.synthesize, selected, speech_text),
+                )
+                key = self.cache_keys.speech(selected, speech_text)
                 namespace = f"speech:{self.cache_keys.scope(selected)}"
                 cached = await self.cache.get(
                     namespace,
@@ -342,8 +362,26 @@ class TTSService:
                 elapsed_ms=round((monotonic() - started) * 1000),
                 request_id=audio.request_id,
             )
-            return replace(audio, provider_id=provider_id)
+            return replace(
+                audio, provider_id=provider_id,
+                display_text=clean_display_text(text, breeze=breeze_input is not None or selected.kind == "breeze"),
+            )
         raise TTSError("所有已选服务商均合成失败：" + "；".join(failures))
+
+    async def _synthesize_breeze(self, client: Provider, requests: List[Tuple[Profile, str]]) -> Audio:
+        parts: List[Audio] = []
+        total = 0
+        for profile, text in requests:
+            audio = await client.synthesize(profile, text)
+            total += len(audio.data)
+            if total > self.http.limit:
+                raise TTSError("Breeze 分段合成音频超过大小上限")
+            parts.append(audio)
+        if not parts:
+            raise TTSError("Breeze 控制标记后需要填写朗读内容")
+        if len(parts) == 1:
+            return parts[0]
+        return await asyncio.to_thread(join_breeze_audio, parts, self.http.limit)
 
     def record(self, profile: Profile, success: bool, *, error: str = "", audio_bytes: int = 0) -> None:
         self.history.appendleft(

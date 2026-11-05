@@ -5,6 +5,7 @@ from maibot_sdk import HookHandler, Tool
 from maibot_sdk.types import HookMode
 from typing import Any, Dict, List, Optional
 
+from ..domain.breeze_control import control_prompt, event_tags
 from ..domain.intonation import tone_capability, tone_prompt
 from ..domain.models import Profile, TTSError
 
@@ -13,7 +14,7 @@ class IntonationMixin:
     @Tool(
         "mmtts_tone_options",
         brief_description="查看当前 TTS 的语调模式与允许的动态语调",
-        detailed_description="使用语音工具前可查询当前语调。固定模式直接传朗读正文；动态模式按返回的允许列表选择一个头部标签。",
+        detailed_description="查询当前语调和控制语法。Breeze 动态模式另提供局部音频事件表与自由语气标记；其他平台按允许列表使用唯一的头部语调标签。",
         parameters=[],
     )
     async def handle_tone_options(self, **kwargs: Any) -> Dict[str, Any]:
@@ -27,7 +28,7 @@ class IntonationMixin:
             return {"success": False, "error": self._safe_error_message(exc)}
         cap = tone_capability(profile.kind, profile.model, profile.voice, profile.options.resource_id)
         allowed = profile.tone.allowed or (cap["tones"] if cap else [])
-        return {
+        result = {
             "success": True,
             "provider": profile.name,
             "model": profile.model,
@@ -37,6 +38,16 @@ class IntonationMixin:
             "allowed_tones": allowed if profile.tone.mode == "dynamic" else [],
             "format": "[mmtts:语调ID]正文" if profile.tone.mode == "dynamic" else "直接填写朗读正文",
         }
+        if profile.kind == "breeze" and profile.tone.mode == "dynamic":
+            result.update(
+                format="[语气:描述][音频事件]正文；也支持 [用温柔的语气] 和可选的 [mmtts:语调ID] 头部标签",
+                audio_events=event_tags(
+                    profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
+                ),
+                free_direction={"scope": "到下一个自由语气标记前", "max_characters": 200, "max_markers": 8},
+                retained_text="移除控制标记后的正文",
+            )
+        return result
 
     def primary_tone_profile(self) -> Optional[Profile]:
         config = self.store.config
@@ -64,6 +75,13 @@ class IntonationMixin:
             model=profile.model,
             tone_count=len(profile.tone.allowed or cap["tones"]),
         )
+        if profile.kind == "breeze":
+            return control_prompt(
+                self.features.tone_prompt_language, automatic=automatic,
+                tags=event_tags(
+                    profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
+                ),
+            ) + "\n[mmtts:ID]: " + ", ".join(profile.tone.allowed or cap["tones"])
         return tone_prompt(
             profile.tone.allowed or cap["tones"],
             self.features.tone_prompt_language,
