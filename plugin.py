@@ -113,6 +113,11 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
     async def studio_state(self) -> Dict[str, Any]:
         return await self.studio.snapshot()
 
+    @API("studio_llm_tasks", description="读取 MaiBot 可用的 LLM 模型任务")
+    async def studio_llm_tasks(self) -> Dict[str, Any]:
+        tasks = await self.ctx.llm.get_available_models()
+        return {"tasks": [name for name in tasks if name not in {"embedding", "image_embedding", "voice"}]}
+
     @API("studio_reference_files", description="列出插件数据目录中的参考录音")
     async def studio_reference_files(self) -> Dict[str, Any]:
         return await self.service.http.reference_files.snapshot()

@@ -571,6 +571,10 @@ class Features(Model):
     probability_private_enabled: bool = True
     probability_keep_text: bool = False
     probability_quote_keep_text: bool = True
+    probability_tone_enabled: bool = False
+    probability_tone_task: str = Field(default="utils", min_length=1, max_length=200)
+    probability_tone_timeout: float = Field(default=60, ge=1, le=300)
+    probability_tone_retries: int = Field(default=3, ge=0, le=10)
     tool_keep_text: bool = False
     allow_voice_override: bool = False
     allow_speed_override: bool = True

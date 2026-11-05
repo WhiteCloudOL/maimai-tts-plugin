@@ -9,6 +9,7 @@ import asyncio
 import re
 
 from ..domain.models import Audio, Features, TTSError
+from ..domain.adaptive_tone import ToneAdapter
 from ..services.intonation import clean_display_text
 from ..infrastructure.voice_codec import voice_segment
 from ..infrastructure.diagnostics import trace_scope
@@ -276,12 +277,16 @@ class MessagingMixin:
         text: str,
         voice: Optional[str] = None,
         speed: Optional[float] = None,
+        tone_adapter: Optional[ToneAdapter] = None,
     ) -> Audio:
         """合成音频并按工作台选项准备聊天语音格式。"""
         with trace_scope():
             delivery_format = self.features.delivery_format
+            options: Dict[str, Any] = {}
+            if tone_adapter is not None:
+                options["tone_adapter"] = tone_adapter
             audio = await self.service.synthesize(
-                text, voice=voice, speed=speed, delivery_format=delivery_format
+                text, voice=voice, speed=speed, delivery_format=delivery_format, **options
             )
             return await self.service.prepare_delivery(audio, delivery_format)
 

@@ -1882,6 +1882,10 @@
         models: {},
         remoteVoices: {},
         voiceModels: {},
+        llmTasks: [],
+        llmTasksLoaded: false,
+        llmTasksLoading: false,
+        llmTasksError: "",
         previewModel: "",
         picker: null,
         modelEditor: null,
@@ -2131,6 +2135,7 @@
           features: featuresView,
           preview: previewView,
         }[state.tab]();
+        if (state.tab === "features") void loadProbabilityToneTasks();
         syncSelects();
         if (state.busy)
           document
@@ -4655,6 +4660,29 @@
         return `<div class="route-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>整体语音路由</h2><p>按 Provider/Model 选择首选与备选，每条路由明确使用具体模型。</p><p id="routing-status" class="dirty-label" role="status" aria-live="polite"></p></div><button class="maibot-button maibot-button-primary key small" data-action="save-routing" data-save="routing">保存语音路由</button></div><div class="panel-body"><div class="section-title"><h3>首选路由</h3><small>PRIMARY</small></div><div class="model-row"><div class="model-copy"><strong>${h(routeName(primary))}</strong></div><button class="maibot-button maibot-button-primary key small" data-route-pick="primary">选择服务商 / 模型</button></div>${routeVoiceField(primary, "primary")}<hr class="split"><div class="section-title"><h3>有序备选</h3><small>FALLBACK CHAIN</small></div>${state.config.fallbacks.map((target, index) => `<div class="maibot-card panel panel-body" style="margin-bottom:12px"><div class="flex-wrap"><span class="order">${index + 1}</span><strong style="flex:1;overflow-wrap:anywhere;font-size:13px">${h(routeName(target))}</strong><button class="maibot-button key small" data-route-pick="${index}">更换模型</button><button class="maibot-button key small" data-route-up="${index}" aria-label="上移备选 ${index + 1}" ${index === 0 ? "disabled" : ""}>↑</button><button class="maibot-button key small" data-route-down="${index}" aria-label="下移备选 ${index + 1}" ${index === state.config.fallbacks.length - 1 ? "disabled" : ""}>↓</button><button class="maibot-button key small flat danger" data-route-remove="${index}" aria-label="移除备选 ${index + 1}">×</button></div>${routeVoiceField(target, index)}</div>`).join("")}<button class="maibot-button key" data-action="add-backup">＋ 添加备选路由</button></div></section><aside class="maibot-card panel panel-body"><div class="overline">PROVIDER / MODEL</div><h2 style="margin-top:9px">统一选择声音的来源</h2><ol class="route-guide"><li>平台页管理连接、模型库与音色资源。</li><li>整体路由指定实际使用的服务商、模型与音色。</li><li>同一服务商的不同模型也可分别加入备选。</li><li>按列表顺序调用，结果以平台与适配器回执为准。</li></ol><div class="note" style="margin-top:18px">聊天切换：<br><code>/mmtts model</code> 查看编号列表<br><code>/mmtts model 2</code> 按编号切换<br><code>/mmtts model Provider/Model</code> 按名称切换</div></aside></div>`;
       }
 
+      function probabilityToneOptions() {
+        const f = state.config.feature,
+          options = [["utils", "utils（默认）"], ...state.llmTasks.filter((task) => task !== "utils").map((task) => [task, task])];
+        if (f.probability_tone_task && !options.some(([id]) => id === f.probability_tone_task))
+          options.push([f.probability_tone_task, `当前任务 / ${f.probability_tone_task}（请核对宿主配置）`]);
+        return `<div class="form-grid">${selectField("feature.probability_tone_task", "LLM 模型任务", f.probability_tone_task || "utils", options, "服务商与具体模型沿用所选任务，建议为该任务配置低延迟、非推理模型。")}${field("feature.probability_tone_timeout", "LLM 超时（秒）", f.probability_tone_timeout ?? 60, "每次请求默认 60 秒，可设置 1–300 秒。", "number")}${field("feature.probability_tone_retries", "LLM 重试次数", f.probability_tone_retries ?? 3, "失败后默认再试 3 次，0 表示不重试，可设置 0–10 次。", "number")}</div><div class="flex-wrap" style="margin-top:12px"><button type="button" class="maibot-button key small" data-action="refresh-llm-tasks" ${state.llmTasksLoading ? "disabled" : ""}>${state.llmTasksLoading ? "正在读取任务…" : "刷新 LLM 任务列表"}</button><small>沿用 MaiBot 的模型凭据，插件不保存 LLM 密钥。</small></div>${state.llmTasksError ? `<p class="error-panel" role="alert" style="margin-top:12px">${h(state.llmTasksError)}</p>` : ""}`;
+      }
+      async function loadProbabilityToneTasks(force = false) {
+        if (state.llmTasksLoading || (state.llmTasksLoaded && !force)) return;
+        state.llmTasksLoading = true;
+        state.llmTasksError = "";
+        try {
+          const result = await maibot.query("llm_tasks");
+          state.llmTasks = result.tasks;
+        } catch (error) {
+          state.llmTasksError = error.message;
+        } finally {
+          state.llmTasksLoaded = true;
+          state.llmTasksLoading = false;
+          const form = $("#probability-tone-options");
+          if (form) form.innerHTML = probabilityToneOptions();
+        }
+      }
       function featuresView() {
         const f = state.config.feature;
         return `<div class="features-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>如何说话</h2><p>为聊天命令与麦麦自主调用分别设置。</p></div></div><div class="panel-body"><div class="form-grid" style="margin-bottom:22px">${selectField(
@@ -4676,7 +4704,7 @@
             ["ja", "日本語"],
           ],
           "模型或音色选择动态模式时生效。固定语调直接使用配置，正文保持原样。",
-        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}</div></section></div>`;
+        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅在抽中概率语音、且实际路由的模型和音色启用动态语调时生效；未启用则忽略。保持原文，重试耗尽后使用路由默认语调。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div>`;
       }
       function previewModelOptions() {
         const p = state.config.profiles.find(
@@ -5045,6 +5073,7 @@
         showVoiceWorkspace();
       }
       const handlers = {
+        "refresh-llm-tasks": () => loadProbabilityToneTasks(true),
         "add-timbre": () => {
           const p = state.modelEditor.profile;
           p.options.timbre_weights ||= [];

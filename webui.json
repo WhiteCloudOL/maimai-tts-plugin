@@ -14,6 +14,9 @@
       "entry": "webui/index.html",
       "layout": "viewport",
       "queries": {
+        "llm_tasks": {
+          "api": "studio_llm_tasks"
+        },
         "state": {
           "api": "studio_state"
         },

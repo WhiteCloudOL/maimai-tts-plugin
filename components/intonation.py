@@ -136,6 +136,9 @@ class IntonationMixin:
         if not self.config.plugin.enabled or not (self.features.probability_enabled or self.features.tool_enabled):
             return {"action": "continue"}
         automatic = self.features.probability_enabled and self._is_probability_reply(kwargs.get("reply_tool_args"))
+        if automatic and self.features.probability_tone_enabled:
+            # 自适应在抽中语音后独立分类，回复模型无需再生成一套语调标签。
+            return {"action": "continue"}
         if not automatic and not self.features.tool_enabled:
             return {"action": "continue"}
         prompt = self.dynamic_tone_prompt(automatic=automatic)

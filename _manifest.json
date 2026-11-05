@@ -48,7 +48,9 @@
   ],
   "capabilities": [
     "send.hybrid",
-    "send.text"
+    "send.text",
+    "llm.generate",
+    "llm.get_available_models"
   ],
   "i18n": {
     "default_locale": "zh-CN",

@@ -15,6 +15,7 @@ from ..domain.intonation import parse_tone_tag
 from ..domain.models import TTSError
 from ..infrastructure.voice_codec import voice_segment
 from ..services.intonation import validate_requested_tone
+from .adaptive_tone import ProbabilityToneAdapter
 
 
 @dataclass
@@ -359,10 +360,16 @@ class ProbabilityMixin:
         self, messages: List[Dict[str, Any]], original_texts: List[Optional[str]]
     ) -> None:
         keep_text = self.features.probability_keep_text
+        adapter = None
+        if self.features.probability_tone_enabled:
+            adapter = ProbabilityToneAdapter(
+                self.ctx, self.features, "\n".join(value for value in original_texts if value is not None), self.service.log
+            )
         for message, original in zip(messages, original_texts, strict=True):
             if original is None:
                 raise TTSError("概率语音只处理纯文本回复")
-            audio = await self._synthesize_audio(text=original)
+            options: Dict[str, Any] = {"tone_adapter": adapter} if adapter is not None else {}
+            audio = await self._synthesize_audio(text=original, **options)
             segment = await asyncio.to_thread(voice_segment, audio)
             # voice 的 data 是已知朗读正文，二进制由独立字段传递；Host 据此记录语音内容。
             segment["data"] = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
