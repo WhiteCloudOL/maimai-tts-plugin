@@ -6,7 +6,7 @@
 
 [![Plugin 2.0.8](https://img.shields.io/badge/Plugin-2.0.8-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.0.8)
 [![MaiBot 1.3.6–1.4.99](https://img.shields.io/badge/MaiBot-1.3.6--1.4.99-007ec6?style=flat)](#快速开始)
-[![Plugin SDK 2.13.0–2.20.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.20.0-8A2BE2?style=flat)](#快速开始)
+[![Plugin SDK 2.13.0–2.21.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.21.0-8A2BE2?style=flat)](#快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
 
 **为麦麦赋予说话的能力！**
