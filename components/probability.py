@@ -423,3 +423,9 @@ class ProbabilityMixin:
                 self._probability_voice_states[key] = active
             else:
                 del self._probability_voice_states[key]
+
+    def _invalidate_probability_decisions(self) -> None:
+        # 配置保存后停用旧判定，但保留本轮标记识别状态，直到发送扩展清理正文。
+        self._remove_expired_probability_states()
+        for state in self._probability_reply_states.values():
+            state.should_convert = False

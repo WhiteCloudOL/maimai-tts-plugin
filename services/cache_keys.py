@@ -8,6 +8,7 @@ import json
 import secrets
 
 from ..domain.compatibility import template_variables
+from ..domain.breeze_control import boundary_pauses
 from ..domain.models import Profile
 
 
@@ -100,4 +101,4 @@ class CacheKeys:
         keys = [self.speech(profile, text) for profile, text in requests]
         if any(key is None for key in keys):
             return None
-        return self.digest({"breeze_sections_v1": keys})
+        return self.digest({"breeze_sections_v2": keys, "boundary_pauses_ms": boundary_pauses([text for _, text in requests])})

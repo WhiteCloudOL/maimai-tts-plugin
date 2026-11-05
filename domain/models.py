@@ -507,6 +507,15 @@ class Profile(Model):
             data["endpoint"] = urlunsplit(parsed._replace(query=urlencode(query)))
         return Profile.model_validate(data)
 
+    def resolve_voice_id(self, value: str) -> str:
+        voices = [item for item in self.voices if item.model in ("", self.model)]
+        if any(item.id == value for item in voices):
+            return value
+        matches = [item.id for item in voices if item.name == value]
+        if len(set(matches)) > 1:
+            raise TTSError("此模型下存在同名音色，请使用音色 ID")
+        return matches[0] if matches else value
+
     def with_selected_voice(self) -> "Profile":
         selected = next(
             (item for item in self.voices if item.id == self.voice and item.model in ("", self.model)), None

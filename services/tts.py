@@ -15,7 +15,7 @@ import hashlib
 import json
 
 from ..settings.config import RuntimeSection
-from ..domain.breeze_control import parse_breeze_text
+from ..domain.breeze_control import boundary_pauses, parse_breeze_text
 from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, safe_validation_error
 from ..providers import PROVIDERS
 from ..providers.base import Provider
@@ -250,7 +250,7 @@ class TTSService:
             if first.voice is not None:
                 values["voice"] = first.voice
             if voice is not None:
-                values["voice"] = voice
+                values["voice"] = initial.resolve_voice_id(voice)
             try:
                 initial = Profile.model_validate(values).with_selected_voice()
                 validate_requested_tone(initial, parsed.tone)
@@ -281,11 +281,12 @@ class TTSService:
                 total=len(route),
             )
             try:
-                values = (profile.for_model(target.model_id) if target.model_id else profile).model_dump()
+                model_profile = profile.for_model(target.model_id) if target.model_id else profile
+                values = model_profile.model_dump()
                 if target.voice is not None:
                     values["voice"] = target.voice
                 if voice is not None:
-                    values["voice"] = voice
+                    values["voice"] = model_profile.resolve_voice_id(voice)
                 selected = Profile.model_validate(values).with_selected_voice()
                 self.log.info(
                     "本次语音路由",
@@ -384,7 +385,8 @@ class TTSService:
             raise TTSError("Breeze 控制标记后需要填写朗读内容")
         if len(parts) == 1:
             return parts[0]
-        return await asyncio.to_thread(join_breeze_audio, parts, self.http.limit)
+        pauses = boundary_pauses([text for _, text in requests])
+        return await asyncio.to_thread(join_breeze_audio, parts, self.http.limit, pauses)
 
     def record(self, profile: Profile, success: bool, *, error: str = "", audio_bytes: int = 0) -> None:
         self.history.appendleft(

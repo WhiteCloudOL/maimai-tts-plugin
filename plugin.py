@@ -106,7 +106,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
             await old_studio.close()
         if old_service is not None:
             await old_service.close()
-        self._probability_reply_states.clear()
+        self._invalidate_probability_decisions()
         self._log_configuration("运行配置已更新")
 
     @API("studio_state", description="读取平台、路由与工作台概览")
@@ -134,7 +134,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         if not isinstance(data, dict):
             raise TTSError("配置必须是对象")
         result = await self.store.save(data, revision)
-        self._probability_reply_states.clear()
+        self._invalidate_probability_decisions()
         self._log_configuration("工作台全部设置已保存")
         return result
 
@@ -147,7 +147,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         if not isinstance(data, dict):
             raise TTSError("平台配置必须是对象")
         result = await self.store.save_profile(data, revision)
-        self._probability_reply_states.clear()
+        self._invalidate_probability_decisions()
         self.service.log.info("平台设置已保存", provider_id=data.get("id"), revision=result["revision"])
         return result
 
@@ -160,7 +160,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         if not isinstance(data, dict):
             raise TTSError("路由配置必须是对象")
         result = await self.store.save_routing(data, revision)
-        self._probability_reply_states.clear()
+        self._invalidate_probability_decisions()
         self._log_configuration("整体语音路由已保存并生效")
         return result
 

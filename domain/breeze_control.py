@@ -88,6 +88,22 @@ def event_tags(language: str = "", *, local: bool = False) -> Dict[str, List[str
 # 官方各语言表按相同事件顺序排列：笑、轻笑、叹气、耳语、唱歌、哼歌、停顿。
 COMMON_EVENT_INDICES = (0, 1, 8, 13, 16, 17, 19)
 PAUSE_EVENT_INDEX = 19
+PAUSE_TAGS = tuple({values[PAUSE_EVENT_INDEX] for values in AUDIO_TAGS.values()})
+
+
+def boundary_pauses(texts: List[str]) -> List[int]:
+    """语气区段的停顿由拼接阶段落实；原生边界停顿至少留出一个句末间隔。"""
+    pauses: List[int] = []
+    for left, right in zip(texts, texts[1:]):
+        ending = clean_breeze_text(left).rstrip(" \t\r\n\"'”’»」』】）》）)]")
+        explicit = left.rstrip().endswith(PAUSE_TAGS) or right.lstrip().startswith(PAUSE_TAGS)
+        if explicit or ending.endswith(("。", "！", "？", ".", "!", "?", "…")):
+            pauses.append(300)
+        elif ending.endswith(("，", ",", "；", ";", "：", ":")):
+            pauses.append(150)
+        else:
+            pauses.append(100)
+    return pauses
 
 
 def control_prompt(language: str, *, automatic: bool, tags: Dict[str, List[str]]) -> str:
@@ -97,23 +113,23 @@ def control_prompt(language: str, *, automatic: bool, tags: Dict[str, List[str]]
         "zh": (
             "Breeze：用 [语气:描述]（也支持 [用温柔的语气]）控制后文，至下一标记前；每段 1–200 字，一条最多 8 个。"
             "描述与台词同语言；可省略标记沿用默认语调，或在开头使用一个允许的 [mmtts:ID]。"
-            "用标点组织停连，转折或切换语气前按需插入表内停顿标签，一处一个，不连续堆叠或自造时长写法。"
+            "用标点组织停连，段间停顿由插件补齐；段内留白按需插入表内停顿标签，一处一个，不堆叠或自造时长写法。"
             "事件留在合成正文；自由语气提取成指令，聊天文字隐藏标记。台词必须完整，普通括号保留。"
             "下面是常用事件；其他事件先查询 mmtts_tone_options。"
         ),
         "en": (
             "Breeze: [style:direction] (also [语气:描述] or [用温柔的语气]) applies until the next marker; "
             "1–200 characters each, eight markers per reply. Match the dialogue language. Omit markers for the "
-            "default tone, or use one allowed leading [mmtts:ID]. Use punctuation for phrasing and one listed pause "
-            "where needed before a contrast or style change; do not stack pauses or invent duration syntax. "
+            "default tone, or use one allowed leading [mmtts:ID]. The plugin supplies gaps between sections. "
+            "Use punctuation and one listed pause where needed within a section; do not stack pauses or invent duration syntax. "
             "Events stay in speech input; directions become separate instructions. Chat text hides controls. "
             "Include complete dialogue; preserve ordinary brackets. Common events follow; query mmtts_tone_options for others."
         ),
         "ja": (
             "Breeze：[話し方:説明]（[语气:描述]、[用温柔的语气] も可）は次の指定まで適用。"
             "説明は台詞と同じ言語で各 1–200 文字、返信ごとに最大 8 個。省略時は既定の語調、"
-            "または許可された [mmtts:ID] を先頭に一つ使えます。句読点で区切り、転換や語調変更の前に"
-            "必要なら表の間合いタグを一つ入れてください。連続挿入や独自の秒数指定は禁止です。"
+            "または許可された [mmtts:ID] を先頭に一つ使えます。区間の間はプラグインが間合いを確保します。"
+            "区間内では句読点と必要に応じて表の間合いタグを一つ使い、連続挿入や独自の秒数指定は禁止です。"
             "イベントは合成本文に残し、話し方は独立した指示に変換、チャットではタグを隠します。"
             "台詞を省略せず、通常の括弧は保持。下表以外は mmtts_tone_options で確認してください。"
         ),
