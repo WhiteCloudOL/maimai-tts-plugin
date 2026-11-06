@@ -174,6 +174,8 @@ class ToneSettings(Model):
     mode: Literal["off", "fixed", "dynamic"] = "off"
     emotion: str = "neutral"
     allowed: List[str] = Field(default_factory=list, max_length=20)
+    labels: Dict[str, str] = Field(default_factory=dict)
+    directions: Dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_ids(self) -> "ToneSettings":
@@ -181,6 +183,11 @@ class ToneSettings(Model):
             raise ValueError("请选择列表中的语调 ID")
         if len(self.allowed) != len(set(self.allowed)):
             raise ValueError("动态语调允许列表需要保持唯一")
+        for mapping, limit in ((self.labels, 40), (self.directions, 200)):
+            if any(key not in TONE_LABELS for key in mapping):
+                raise ValueError("只能编辑现有语调，不能新增或修改语调 ID")
+            if any(not value.strip() or len(value) > limit or any(c in value for c in "[]\r\n") for value in mapping.values()):
+                raise ValueError(f"语调名称或指令须为不含控制标签的 1–{limit} 字单行文字")
         return self
 
 
@@ -332,7 +339,10 @@ class Profile(Model):
         active_instructions = inherit_instructions(
             model_instructions, selected_voice.instructions if selected_voice is not None else None
         )
-        validate_tone_settings(effective_tone, self.kind, self.model, self.voice, resource_id, active_instructions)
+        validate_tone_settings(
+            effective_tone, self.kind, self.model, self.voice, resource_id, active_instructions,
+            instruction_mode=current_options.volc_instruction_mode,
+        )
         if self.kind == "volcengine":
             if active_instructions and not supports_instructions(self.model, resource_id):
                 raise ValueError("当前火山资源或模型不支持语音指令，ICL 2.0 请使用 expressive 效果版本")
@@ -373,7 +383,10 @@ class Profile(Model):
                     ),
                     voice_settings.instructions if voice_settings is not None else None,
                 )
-                validate_tone_settings(policy, self.kind, item.id, item.voice, resource, instructions)
+                validate_tone_settings(
+                    policy, self.kind, item.id, item.voice, resource, instructions,
+                    instruction_mode=parameters.options.volc_instruction_mode,
+                )
                 if self.kind == "compatible":
                     validate_custom_instructions(parameters.options, policy, instructions)
             if item.base_url:
@@ -419,7 +432,8 @@ class Profile(Model):
                     voice.instructions,
                 )
                 validate_tone_settings(
-                    voice.tone, self.kind, voice.model or self.model, voice.id, resource, instructions
+                    voice.tone, self.kind, voice.model or self.model, voice.id, resource, instructions,
+                    instruction_mode=(parameters.options if parameters is not None else self.options).volc_instruction_mode,
                 )
                 if self.kind == "compatible":
                     validate_custom_instructions(

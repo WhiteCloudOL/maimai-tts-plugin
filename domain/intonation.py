@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 import re
 
 from .prompts import DEFAULT_PROMPTS, render_prompt
+from .bailian import instruction_length
+from .volcengine import cot_text
 
 
 TONE_LABELS = {
@@ -228,10 +230,15 @@ def parse_tone_tag(text: str) -> TaggedText:
     return TaggedText(clean, tone, tagged=True)
 
 
-def validate_tone_settings(tone: Any, kind: str, model: str, voice: str, resource_id: str, instructions: str) -> None:
+def validate_tone_settings(
+    tone: Any, kind: str, model: str, voice: str, resource_id: str, instructions: str,
+    *, instruction_mode: str = "context",
+) -> None:
+    cap = tone_capability(kind, model, voice, resource_id)
+    if (tone.labels or tone.directions) and (cap is None or cap["protocol"] in {"cosy_emotion", "minimax_emotion"}):
+        raise ValueError("此组合不开放语调名称和表达指令编辑，请恢复系统默认语调")
     if tone.mode == "off":
         return
-    cap = tone_capability(kind, model, voice, resource_id)
     if cap is None:
         raise ValueError("此模型、音色或资源尚未确认支持受控语调，请选择平台已支持的组合")
     if tone.emotion not in cap["tones"] or (
@@ -244,6 +251,22 @@ def validate_tone_settings(tone: Any, kind: str, model: str, voice: str, resourc
         raise ValueError("CosyVoice 3.0 采用固定格式情感指令，启用语调时请清空自由风格描述")
     if cap["protocol"] == "minimax_emotion" and instructions:
         raise ValueError("MiniMax 使用原生情感选项，请清空自由风格描述")
+    for direction in tone.directions.values():
+        combined = "\n".join(value for value in (instructions, direction) if value)
+        if kind == "cosyvoice" and instruction_length(combined) > 100:
+            raise ValueError("CosyVoice 风格与语调指令合计上限 100 字符，汉字计 2，其余计 1")
+        if kind in {"openai", "compatible"} and len(combined) > 4096:
+            raise ValueError("风格与语调指令合计上限 4096 字符")
+        if kind == "volcengine" and instruction_mode == "cot":
+            cot_text("&", combined)
+
+
+def tone_choices(allowed: List[str], labels: Dict[str, str], directions: Dict[str, str]) -> str:
+    """稳定 ID 与用户编辑的含义同时供模型选择，原生枚举由配置校验禁止覆盖。"""
+    return ", ".join(
+        f"{key}({labels.get(key, TONE_LABELS[key])}" + (f": {directions[key]}" if key in directions else "") + ")"
+        for key in allowed
+    )
 
 
 def tone_prompt(
@@ -255,8 +278,10 @@ def tone_prompt(
     direction_limit: int = 0,
     weighted: bool = False,
     template: Optional[str] = None,
+    labels: Optional[Dict[str, str]] = None,
+    directions: Optional[Dict[str, str]] = None,
 ) -> str:
-    choices = ", ".join(f"{key}({TONE_LABELS[key]})" for key in allowed)
+    choices = tone_choices(allowed, labels or {}, directions or {})
     prompts = DEFAULT_PROMPTS["dynamic"]
     placements = {
         "zh": "在回复正文开头添加标签；调用 mmtts_speak 时放在 text 参数开头。"

@@ -14,7 +14,7 @@ from ..domain.adaptive_tone import (
     parse_adaptive_tone,
     validate_direction,
 )
-from ..domain.intonation import tone_capability
+from ..domain.intonation import tone_capability, tone_choices
 from ..domain.breeze_control import parse_breeze_text
 from ..domain.models import Features, Profile, TTSError
 from ..domain.prompts import prompt_template
@@ -47,6 +47,8 @@ class ProbabilityToneAdapter:
         key = json.dumps(
             [
                 tones,
+                profile.tone.labels,
+                profile.tone.directions,
                 profile.kind,
                 prompt_template(
                     self.features.prompt_overrides, profile.kind, "adaptive", self.features.tone_prompt_language
@@ -84,6 +86,7 @@ class ProbabilityToneAdapter:
                 feedback=feedback,
                 weighted=profile.kind == "cosyvoice",
                 event_options=events,
+                tone_meanings=tone_choices(tones, profile.tone.labels, profile.tone.directions),
                 template=prompt_template(
                     self.features.prompt_overrides,
                     profile.kind,

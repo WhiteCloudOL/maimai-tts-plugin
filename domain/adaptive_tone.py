@@ -95,6 +95,7 @@ def adaptive_prompt(
     weighted: bool = False,
     event_options: Optional[Dict[str, List[str]]] = None,
     template: Optional[str] = None,
+    tone_meanings: str = "",
 ) -> str:
     free_direction = free_direction or breeze
     example = json.dumps({"tone": tones[0], **({"direction": ""} if free_direction else {})}, ensure_ascii=False)
@@ -137,7 +138,7 @@ def adaptive_prompt(
             "ja": 'JSONのみ：{"direction":"話し方","events":[{"before":"原文の一意な連続句","tag":"表のタグ"}]}。directionは同言語で1–200文字。eventsは最大3個、一か所一つ、beforeは原文そのままの一意な1–80文字。本文は書き換えず同じ言語のタグ表を使う。toneは省略可能、指定時は許可IDのみ。',
         }
         return "\n".join(
-            [base, data_rules[language], formats[language], "tone: " + json.dumps(tones), table or existing[language]]
+            [base, data_rules[language], formats[language], "tone: " + json.dumps(tones), tone_meanings, table or existing[language]]
             + ([retries[language].format(error=feedback)] if feedback else [])
         )
     counts = {
@@ -158,6 +159,7 @@ def adaptive_prompt(
             ),
             formats[language],
             "tone: " + json.dumps(tones),
+            tone_meanings,
             example,
             directions[language].format(limit=max_direction_length, count=counts[language] if weighted else "")
             if free_direction

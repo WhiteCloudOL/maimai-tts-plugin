@@ -1074,15 +1074,55 @@
         margin-top: 8px;
       }
       .prompt-settings {
-        margin-top: 22px;
+        margin-bottom: 22px;
       }
-      .prompt-settings > summary {
-        padding: 16px 20px;
-        cursor: pointer;
-      }
-      .prompt-settings textarea {
-        min-height: 220px;
-        overflow-wrap: anywhere;
+      .prompt-platform-field { width: min(100%, 280px); }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      .prompt-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+      .prompt-card { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid var(--line); }
+      .prompt-card > div { flex: 1; }
+      .prompt-card p { font-size: 12px; color: var(--muted); margin: 10px 0; }
+      .prompt-card small { color: var(--muted); }
+      #dialog.prompt-dialog { width: 1040px; height: min(780px, calc(var(--visible-height) - 2 * var(--dialog-gap))); }
+      .prompt-dialog .dialog-body { flex: 1; padding: 0; overflow: hidden; }
+      .prompt-edit-layout { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; }
+      .prompt-edit-toolbar, .prompt-edit-help, .prompt-edit-footer { padding: 12px 20px; }
+      .prompt-edit-toolbar { display: grid; gap: 10px; }
+      .prompt-edit-toolbar small, .prompt-edit-help small { color: var(--muted); }
+      .prompt-languages { display: flex; gap: 8px; }
+      .prompt-languages .active { background: var(--scope); color: var(--scope-ink); }
+      .prompt-text-area { min-height: 0; padding: 0 20px; }
+      .prompt-text-area textarea { width: 100%; height: 100%; min-height: 0; resize: none; font: 14px/1.7 var(--mono); }
+      .prompt-edit-help { font-size: 11px; max-height: 130px; overflow: auto; }
+      .prompt-edit-help summary { cursor: pointer; padding: 6px 0; }
+      .prompt-edit-status { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--muted); }
+      #prompt-character-count { white-space: nowrap; }
+      .prompt-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+      .tone-choice-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .tone-choice { min-width: 0; border: 1px solid var(--line); }
+      .tone-choice-head { display: flex; align-items: center; gap: 8px; padding: 5px 10px; }
+      .tone-choice-head .inline-check { flex: 1; min-width: 0; min-height: 44px; color: var(--ink); cursor: pointer; flex-wrap: wrap; }
+      .tone-choice-head small { font: 10px var(--mono); }
+      .tone-choice-editor { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--line); }
+      .tone-choice-editor[hidden] { display: none; }
+      .tone-choice-editor textarea { min-height: 90px; }
+      @media (max-width: 700px) {
+        .prompt-card-grid, .tone-choice-list { grid-template-columns: 1fr; }
+        .prompt-card { flex-direction: row; align-items: center; }
+        .prompt-platform-field { width: 100%; }
+        .prompt-settings .panel-head { flex-wrap: wrap; }
+        .prompt-edit-toolbar, .prompt-edit-help, .prompt-edit-footer { padding: 10px 12px; }
+        .prompt-text-area { padding: 0 12px; }
+        .prompt-edit-actions .key { flex: 0 0 auto; padding-inline: 8px; font-size: 12px; min-height: 44px; }
+        .prompt-edit-actions .key:last-child { flex: 1; }
+        .prompt-edit-toolbar > small { display: none; }
+        .prompt-edit-toolbar > .flex-wrap { display: none; }
+        .prompt-edit-help > small { display: none; }
+        .prompt-edit-help { padding-block: 0; }
+        .prompt-edit-footer { padding-block: 8px; }
+        .prompt-edit-status { margin-bottom: 6px; font-size: 10px; }
+        .prompt-dialog .dialog-head { padding: 4px 12px; }
+        .prompt-dialog .dialog-head h2 { font-size: 16px; }
       }
       #dialog > .toast {
         position: absolute;
@@ -1892,6 +1932,8 @@
         prompts: null,
         promptPlatform: "breeze",
         promptKind: "dynamic",
+        promptDialog: false,
+        toneEditing: null,
         promptLanguage: "zh",
         referenceAudio: { files: [], directory: "", base_dir: "" },
         history: [],
@@ -2055,7 +2097,7 @@
         box.textContent = message;
         const openDialog = document.querySelector("dialog[open] .dialog-body");
         const area =
-          openDialog ||
+          document.querySelector(".prompt-dialog[open] .prompt-edit-help") || openDialog ||
           document.querySelector("#view .panel-body") ||
           $("#view");
         area.append(box);
@@ -2721,7 +2763,32 @@
           labels = state.intonation.labels;
         if (!modes.some(([key]) => key === mode))
           modes.push([mode, "当前设置 · 需调整模型或音色"]);
-        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? `<fieldset class="field wide"><legend>允许麦麦选择的语调</legend><div class="flex-wrap">${cap.tones.map((key) => `<label class="inline-check"><input type="checkbox" data-tone-allowed="${key}" data-tone-scope="${scope}" ${!tone.allowed.length || tone.allowed.includes(key) ? "checked" : ""}>${h(labels[key])}</label>`).join("")}</div><small>${h(p.kind === "breeze" ? "Breeze 可插入原生音频事件，并用 [语气:描述] 或 [用温柔的语气] 指定后续区段的表达；控制标记从聊天保留文字中隐藏。允许列表约束可选的 [mmtts:ID] 头部标签。" : supportsVoiceStyle(p, isVoice ? v.id : p.voice, isVoice ? voiceResource(p) : undefined) ? "可用 [mmtts:happy]你好，或 [mmtts:style=轻声而温柔]你好。整条回复仅用一个头部标签，控制标记从保留文字中隐藏。" : "仅接受允许列表中的头部语调标签，例如 [mmtts:happy]你好。此组合使用原生情感枚举，不接受自由语气或局部事件。")} </small></fieldset>` : ""}` : ""}</div></section>`;
+        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(["cosy_emotion", "minimax_emotion"].includes(cap.protocol) ? labels[key] : tone.labels?.[key] || labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? toneChoicesForm(p, scope, tone, cap) : ""}` : ""}</div>${!inherited && (!cap || ["cosy_emotion", "minimax_emotion"].includes(cap.protocol)) && (Object.keys(tone.labels || {}).length || Object.keys(tone.directions || {}).length) ? `<p class="muted">当前组合使用系统语调定义，请先清除先前组合的编辑。</p><button class="maibot-button key small" data-action="reset-native-tone" data-tone-scope="${scope}">恢复系统语调定义</button>` : ""}</section>`;
+      }
+      function toneChoicesForm(p, scope, tone, cap) {
+        const native = ["cosy_emotion", "minimax_emotion"].includes(cap.protocol),
+          labels = state.intonation.labels, directions = state.intonation.directions;
+        return `<fieldset class="field wide"><legend>允许麦麦选择的语调</legend><div class="tone-choice-list">${cap.tones.map((key) => {
+          const open = state.toneEditing?.scope === scope && state.toneEditing?.key === key;
+          return `<div class="tone-choice" data-tone-entry="${key}"><div class="tone-choice-head"><label class="inline-check"><input type="checkbox" data-tone-allowed="${key}" data-tone-scope="${scope}" ${!tone.allowed.length || tone.allowed.includes(key) ? "checked" : ""}><span data-tone-label-display="${key}">${h(native ? labels[key] : tone.labels?.[key] || labels[key])}</span><small>${key}</small></label>${native ? "" : `<button class="maibot-button key small" data-action="edit-tone-entry" data-tone-scope="${scope}" data-tone-id="${key}" aria-expanded="${open}" aria-controls="tone-entry-${scope}-${key}">编辑</button>`}</div>${native ? "" : `<div id="tone-entry-${scope}-${key}" class="tone-choice-editor" ${open ? "" : "hidden"}><div class="field"><label for="tone-label-${scope}-${key}">显示名称</label><input id="tone-label-${scope}-${key}" class="maibot-input input" data-tone-entry-field="labels" data-tone-scope="${scope}" data-tone-id="${key}" value="${h(tone.labels?.[key] || "")}" placeholder="${h(labels[key])}" maxlength="40"></div><div class="field"><label for="tone-direction-${scope}-${key}">表达指令</label><textarea id="tone-direction-${scope}-${key}" class="maibot-input input" rows="2" data-tone-entry-field="directions" data-tone-scope="${scope}" data-tone-id="${key}" maxlength="200" placeholder="${h(directions?.[key] || "沿用系统默认表达")}">${h(tone.directions?.[key] || "")}</textarea><small>单行描述，不含标签；留空沿用系统默认。ID ${key} 保持不变。</small></div><button class="maibot-button key small" data-action="reset-tone-entry" data-tone-scope="${scope}" data-tone-id="${key}">恢复此语调默认</button></div>`}</div>`;
+        }).join("")}</div><small>${native ? "此组合使用平台原生情感枚举，仅可勾选允许项，名称和情感定义由系统固定。" : "点击编辑名称与表达指令，随当前模型或音色保存。允许列表控制 ID 标签；自由语气沿用此平台的语法和长度限制。"}</small></fieldset>`;
+      }
+      function updateToneEntry(el) {
+        const scope = el.dataset.toneScope, key = el.dataset.toneId, field = el.dataset.toneEntryField,
+          p = state.modelEditor.profile, owner = scope === "voice" ? state.voiceEditor.voice : p;
+        const cap = toneCapability(p, scope === "voice" ? owner.id : p.voice, scope === "voice" ? voiceResource(p) : undefined);
+        if (!cap || ["cosy_emotion", "minimax_emotion"].includes(cap.protocol))
+          throw Error("此组合不开放语调编辑。");
+        owner.tone[field] ||= {};
+        if (el.value.trim()) owner.tone[field][key] = el.value;
+        else delete owner.tone[field][key];
+        state.modelEditor.changed = true;
+        if (scope === "voice") markVoiceEdited();
+        if (field === "labels") {
+          document.querySelector(`[data-tone-label-display="${key}"]`).textContent = el.value.trim() || state.intonation.labels[key];
+          const option = document.querySelector(`#tone-emotion-${scope} option[value="${key}"]`);
+          if (option) option.textContent = `${el.value.trim() || state.intonation.labels[key]} · ${key}`;
+        }
       }
       function updateTone(el) {
         const scope = el.dataset.toneScope,
@@ -3591,6 +3658,7 @@
       }
       function closeWorkspace() {
         state.modelEditor = null;
+        state.toneEditing = null;
         state.voiceEditor = null;
         state.voiceWorkspace = null;
         state.dialogKind = "";
@@ -3867,6 +3935,13 @@
         await persistVoiceWorkspace();
       }
       function backFromDialog() {
+        if (state.promptDialog) {
+          state.promptDialog = false;
+          closeDialog();
+          render();
+          document.querySelector(`[data-action="edit-prompt"][data-prompt-kind="${state.promptKind}"]`)?.focus({preventScroll: true});
+          return;
+        }
         if (dialogResolve) {
           closeDialog(false);
           return;
@@ -4796,17 +4871,31 @@
           if (form) form.innerHTML = probabilityToneOptions();
         }
       }
-      function promptEditorView() {
+      const promptHints = {
+        tool: "麦麦何时调用语音工具，以及如何填写朗读文本。",
+        dynamic: "按当前平台能力引导语气，Breeze 包含局部表演与事件。",
+        adaptive: "抽中概率语音后，由独立 LLM 判断语气与表达。",
+      };
+      function promptSettingsView() {
         const catalog = state.prompts;
-        if (!catalog) return '<p class="muted">请重新加载插件，读取提示词默认内容。</p>';
-        const platform = state.promptPlatform, language = state.promptLanguage,
-          kinds = catalog.defaults[platform];
-        if (!kinds[state.promptKind]) state.promptKind = "tool";
-        const kind = state.promptKind,
+        if (!catalog) return "";
+        const platform = state.promptPlatform, kinds = catalog.defaults[platform];
+        return `<section class="maibot-card panel prompt-settings"><div class="panel-head"><div><h2>语音提示词</h2><p>按平台分别配置，点击编辑后在独立窗口修改。</p></div><div class="field prompt-platform-field"><label for="prompt-platform">平台</label><select id="prompt-platform" class="maibot-input input">${Object.entries(catalog.platforms).map(([key, label]) => `<option value="${h(key)}" ${key === platform ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div></div><div class="panel-body prompt-card-grid">${Object.keys(kinds).map((kind) => {
+          const count = Object.values(state.config.feature.prompt_overrides?.[platform]?.[kind] || {}).filter((value) => value.trim()).length;
+          return `<article class="prompt-card"><div><h3>${h(catalog.labels[kind])}</h3><p>${h(promptHints[kind])}</p><small>${count ? `已自定义 ${count} 种语言` : "使用内置默认 · 中文优先展示"}</small></div><button class="maibot-button key small" data-action="edit-prompt" data-prompt-kind="${kind}" aria-label="编辑${h(catalog.labels[kind])}">编辑</button></article>`;
+        }).join("")}</div></section>`;
+      }
+      function promptEditorView() {
+        const catalog = state.prompts, platform = state.promptPlatform, kind = state.promptKind,
+          language = state.promptLanguage,
           saved = state.config.feature.prompt_overrides?.[platform]?.[kind]?.[language],
-          custom = Boolean(saved?.trim()), value = custom ? saved : kinds[kind][language],
-          variables = catalog.variables[platform][kind].map((name) => `{{${name}}}`).join("、");
-        return `<div class="form-grid"><div class="field wide"><label for="prompt-platform">平台</label><select id="prompt-platform" class="maibot-input input">${Object.entries(catalog.platforms).map(([key, label]) => `<option value="${h(key)}" ${key === platform ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div><div class="field"><label for="prompt-kind">提示词类型</label><select id="prompt-kind" class="maibot-input input">${Object.keys(kinds).map((key) => [key, catalog.labels[key]]).map(([key, label]) => `<option value="${h(key)}" ${key === kind ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div><div class="field"><label for="prompt-language">编辑语言</label><select id="prompt-language" class="maibot-input input">${[["zh", "中文"], ["en", "English"], ["ja", "日本語"]].map(([key, label]) => `<option value="${key}" ${key === language ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="field wide"><label for="prompt-template">提示词内容</label><textarea id="prompt-template" data-prompt-editor class="maibot-input input" rows="9" maxlength="4000" spellcheck="false">${h(value)}</textarea><small>${variables ? "可用变量：" + h(variables) : "直接填写工具说明。"}</small><small>输出格式、允许的标签与平台限制由插件继续附加和校验。同平台实例共用此提示词，实际调用语言沿用上方“语音提示语言”。</small></div></div><div class="flex-wrap" style="margin-top:14px"><button class="maibot-button key small" data-action="reset-prompt">恢复此项默认</button><small id="prompt-editor-status" role="status">${custom ? "已自定义" : "使用内置默认"} · 保存全部设置后生效</small></div>`;
+          custom = Boolean(saved?.trim()), value = custom ? saved : catalog.defaults[platform][kind][language],
+          variables = catalog.variables[platform][kind];
+        return `<div class="prompt-edit-layout"><div class="prompt-edit-toolbar"><div class="flex-wrap"><strong>${h(catalog.platforms[platform])}</strong><span class="muted">${h(catalog.labels[kind])}</span></div><div class="prompt-languages" role="group" aria-label="编辑语言">${[["zh", "中文"], ["en", "English"], ["ja", "日本語"]].map(([key, label]) => `<button class="maibot-button key small ${key === language ? "active" : ""}" data-action="prompt-language" data-language="${key}" aria-pressed="${key === language}">${label}</button>`).join("")}</div><small>当前编辑${language === "zh" ? "中文" : language === "en" ? "英文" : "日文"}；实际调用沿用“语音提示语言”。同平台实例共用。</small></div><div class="prompt-text-area"><label class="sr-only" for="prompt-template">提示词内容</label><textarea id="prompt-template" data-prompt-editor class="maibot-input input" maxlength="4000" spellcheck="false">${h(value)}</textarea></div><div class="prompt-edit-help">${variables.length ? `<details><summary>插入变量 · ${variables.length} 项</summary><div class="flex-wrap">${variables.map((name) => `<button class="maibot-button key small mono" data-action="insert-prompt-variable" data-variable="${name}">{{${name}}}</button>`).join("")}</div></details>` : ""}<small>输出协议与平台限制由插件附加和校验。</small></div><div class="prompt-edit-footer"><div class="prompt-edit-status"><small id="prompt-editor-status" role="status">${custom ? "已自定义" : "使用内置默认"} · ${state.dirty ? "待保存" : "已保存"}</small><small id="prompt-character-count">${value.length} / 4000</small></div><div class="prompt-edit-actions"><button class="maibot-button key small" data-action="reset-prompt">恢复默认</button><button class="maibot-button key small" data-action="close-dialog">关闭</button><button class="maibot-button maibot-button-primary key small" data-action="save-prompt">保存全部设置</button></div></div></div>`;
+      }
+      function showPromptEditor() {
+        state.promptDialog = true;
+        dialog(state.prompts.labels[state.promptKind], promptEditorView());
       }
       function updatePromptOverride(value) {
         const feature = state.config.feature, platform = state.promptPlatform, kind = state.promptKind, language = state.promptLanguage;
@@ -4822,11 +4911,12 @@
           if (!Object.keys(feature.prompt_overrides[platform]).length) delete feature.prompt_overrides[platform];
         }
         dirty();
-        $("#prompt-editor-status").textContent = `${custom ? "已自定义" : "使用内置默认"} · 保存全部设置后生效`;
+        $("#prompt-character-count").textContent = `${value.length} / 4000`;
+        $("#prompt-editor-status").textContent = `${custom ? "已自定义" : "使用内置默认"} · 待保存`;
       }
       function featuresView() {
         const f = state.config.feature;
-        return `<div class="features-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>如何说话</h2><p>为聊天命令与麦麦自主调用分别设置。</p></div></div><div class="panel-body"><div class="form-grid" style="margin-bottom:22px">${selectField(
+        return `${promptSettingsView()}<div class="features-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>如何说话</h2><p>为聊天命令与麦麦自主调用分别设置。</p></div></div><div class="panel-body"><div class="form-grid" style="margin-bottom:22px">${selectField(
           "feature.delivery_format",
           "聊天语音格式",
           f.delivery_format || "silk",
@@ -4845,7 +4935,7 @@
             ["ja", "日本語"],
           ],
           "工具说明与语调提示使用此语言；动态语调在模型或音色选择动态模式时生效。",
-        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效。指令型模型可使用自由语气，情感枚举型模型按允许列表选择；开启时可同步设置路由音色。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div><details class="maibot-card panel prompt-settings"><summary>提示词编辑</summary><div id="prompt-editor" class="panel-body">${promptEditorView()}</div></details>`;
+        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效。指令型模型可使用自由语气，情感枚举型模型按允许列表选择；开启时可同步设置路由音色。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div>`;
       }
       function previewModelOptions() {
         const p = state.config.profiles.find(
@@ -4881,6 +4971,7 @@
           sameView = modal.open && heading.textContent === title,
           scroll = content.scrollTop,
           focusedId = content.contains(document.activeElement) && document.activeElement.id;
+        modal.classList.toggle("prompt-dialog", state.promptDialog);
         modal.classList.toggle("library-dialog", Boolean(state.picker));
         modal.classList.toggle(
           "object-dialog",
@@ -5215,6 +5306,50 @@
         showVoiceWorkspace();
       }
       const handlers = {
+        "reset-native-tone": (button) => {
+          const scope = button.dataset.toneScope, owner = scope === "voice" ? state.voiceEditor.voice : state.modelEditor.profile;
+          owner.tone.labels = {};
+          owner.tone.directions = {};
+          state.modelEditor.changed = true;
+          if (scope === "voice") markVoiceEdited();
+          document.querySelector(`[data-tone-form="${scope}"]`).outerHTML = toneForm(state.modelEditor.profile, scope);
+        },
+        "edit-tone-entry": (button) => {
+          const scope = button.dataset.toneScope, key = button.dataset.toneId;
+          state.toneEditing = state.toneEditing?.scope === scope && state.toneEditing?.key === key ? null : {scope, key};
+          const form = document.querySelector(`[data-tone-form="${scope}"]`);
+          form.outerHTML = toneForm(state.modelEditor.profile, scope);
+          if (state.toneEditing) $("#tone-label-" + scope + "-" + key).focus({preventScroll: true});
+        },
+        "reset-tone-entry": (button) => {
+          const scope = button.dataset.toneScope, key = button.dataset.toneId,
+            owner = scope === "voice" ? state.voiceEditor.voice : state.modelEditor.profile;
+          for (const field of ["labels", "directions"]) if (owner.tone[field]) delete owner.tone[field][key];
+          state.modelEditor.changed = true;
+          if (scope === "voice") markVoiceEdited();
+          document.querySelector(`[data-tone-form="${scope}"]`).outerHTML = toneForm(state.modelEditor.profile, scope);
+        },
+        "edit-prompt": (button) => {
+          state.promptKind = button.dataset.promptKind;
+          state.promptLanguage = "zh";
+          showPromptEditor();
+        },
+        "prompt-language": (button) => {
+          state.promptLanguage = button.dataset.language;
+          showPromptEditor();
+          document.querySelector(`[data-language="${state.promptLanguage}"]`).focus({preventScroll: true});
+        },
+        "insert-prompt-variable": (button) => {
+          const editor = $("#prompt-template"), token = `{{${button.dataset.variable}}}`;
+          if (editor.value.length - (editor.selectionEnd - editor.selectionStart) + token.length > 4000)
+            throw Error("提示词最多 4000 字符。");
+          editor.setRangeText(token, editor.selectionStart, editor.selectionEnd, "end");
+          updatePromptOverride(editor.value);
+          editor.focus();
+        },
+        "save-prompt": async () => {
+          if (await save()) backFromDialog();
+        },
         "refresh-llm-tasks": () => loadProbabilityToneTasks(true),
         "reset-prompt": () => {
           const value = state.prompts.defaults[state.promptPlatform][state.promptKind][state.promptLanguage];
@@ -5831,7 +5966,7 @@
         }
       });
       document.addEventListener("change", (e) => {
-        if (!e.target.dataset.toneScope || !state.modelEditor) return;
+        if (!e.target.matches("[data-tone-key],[data-tone-allowed]") || !state.modelEditor) return;
         try {
           updateTone(e.target);
         } catch (err) {
@@ -6069,6 +6204,10 @@
       }
       document.addEventListener("input", (e) => {
         if (state.busy || state.saving) return;
+        if (e.target.matches("[data-tone-entry-field]")) {
+          try { updateToneEntry(e.target); } catch (error) { showError(error.message); }
+          return;
+        }
         if (e.target.matches("[data-prompt-editor]")) {
           updatePromptOverride(e.target.value);
           return;
@@ -6107,10 +6246,10 @@
       document.addEventListener("change", (e) => {
         const el = e.target;
         if (state.busy || state.saving) return;
-        if (["prompt-platform", "prompt-kind", "prompt-language"].includes(el.id)) {
-          state[{"prompt-platform": "promptPlatform", "prompt-kind": "promptKind", "prompt-language": "promptLanguage"}[el.id]] = el.value;
-          $("#prompt-editor").innerHTML = promptEditorView();
-          $("#" + el.id).focus({preventScroll: true});
+        if (el.id === "prompt-platform") {
+          state.promptPlatform = el.value;
+          render();
+          $("#prompt-platform").focus({preventScroll: true});
           return;
         }
         if (el.id === "provider-picker") {
@@ -6207,6 +6346,11 @@
         if (el.id === "preview-model") state.previewModel = el.value;
       });
       document.addEventListener("keydown", (e) => {
+        if (state.promptDialog && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          if (!state.saving && !state.busy) void handlers["save-prompt"]();
+          return;
+        }
         const category = e.target.closest("[data-voice-category]");
         if (
           category &&

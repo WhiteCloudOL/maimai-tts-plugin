@@ -39,7 +39,8 @@ def apply_tone(profile: Profile, requested: Optional[str], *, direction: str = "
         return profile, ""
     try:
         validate_tone_settings(
-            settings, profile.kind, profile.model, profile.voice, profile.options.resource_id, profile.instructions
+            settings, profile.kind, profile.model, profile.voice, profile.options.resource_id, profile.instructions,
+            instruction_mode=profile.options.volc_instruction_mode,
         )
     except ValueError as exc:
         raise TTSError(str(exc)) from None
@@ -51,7 +52,12 @@ def apply_tone(profile: Profile, requested: Optional[str], *, direction: str = "
         selected = profile.model_copy(deep=True)
         selected.options.minimax_emotion = {"neutral": "calm", "lively": "fluent"}.get(emotion, emotion)
         return selected, emotion
-    direction = f"你说话的情感是{emotion}。" if cap["protocol"] == "cosy_emotion" else TONE_DIRECTIONS[emotion]
+    direction = (
+        f"你说话的情感是{emotion}。" if cap["protocol"] == "cosy_emotion"
+        else settings.directions.get(emotion, TONE_DIRECTIONS[emotion])
+    )
+    if emotion in settings.directions:
+        validate_direction(profile, direction)
     selected = profile.model_copy(
         deep=True, update={"instructions": "\n".join(value for value in (profile.instructions, direction) if value)}
     )

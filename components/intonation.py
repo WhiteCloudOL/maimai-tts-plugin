@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tags
 from ..domain.adaptive_tone import direction_limit
-from ..domain.intonation import tone_capability, tone_prompt
+from ..domain.intonation import tone_capability, tone_choices, tone_prompt
 from ..domain.models import Profile, TTSError
 from ..domain.prompts import DEFAULT_PROMPTS, prompt_template
 
@@ -38,6 +38,7 @@ class IntonationMixin:
             "mode": profile.tone.mode,
             "default_tone": profile.tone.emotion,
             "allowed_tones": allowed if profile.tone.mode == "dynamic" else [],
+            "tone_meanings": tone_choices(allowed, profile.tone.labels, profile.tone.directions),
             "format": "[mmtts:语调ID]正文" if profile.tone.mode == "dynamic" else "直接填写朗读正文",
         }
         limit = direction_limit(profile)
@@ -95,7 +96,9 @@ class IntonationMixin:
                 template=prompt_template(
                     self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
                 ),
-            ) + ("" if adaptive else "\n[mmtts:ID]: " + ", ".join(profile.tone.allowed or cap["tones"]))
+            ) + ("" if adaptive else "\n[mmtts:ID]: " + tone_choices(
+                profile.tone.allowed or cap["tones"], profile.tone.labels, profile.tone.directions
+            ))
         return tone_prompt(
             profile.tone.allowed or cap["tones"],
             self.features.tone_prompt_language,
@@ -103,6 +106,8 @@ class IntonationMixin:
             default=profile.tone.emotion,
             direction_limit=direction_limit(profile),
             weighted=profile.kind == "cosyvoice",
+            labels=profile.tone.labels,
+            directions=profile.tone.directions,
             template=prompt_template(
                 self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
             ),
