@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .intonation import TONE_LABELS, validate_tone_settings
-from .style import inherit_instructions
+from .style import inherit_instructions, supports_style
 from .bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH_RATES
 from .compatibility import CompatibilityOptions, template_variables
 from .minimax import FORMATS as MINIMAX_FORMATS, OLD_MODEL_LANGUAGES, emotions as minimax_emotions
@@ -322,7 +322,10 @@ class Profile(Model):
             self.instructions
             if resolved
             else inherit_instructions(
-                platform_instructions, current_parameters.instructions if current_parameters is not None else None
+                platform_instructions
+                if supports_style(self.kind, self.model, self.voice, resource_id, current_options.compatibility)
+                else "",
+                current_parameters.instructions if current_parameters is not None else None,
             )
         )
         active_instructions = inherit_instructions(
@@ -361,7 +364,12 @@ class Profile(Model):
                     else parameters.options.resource_id
                 )
                 instructions = inherit_instructions(
-                    inherit_instructions(platform_instructions, parameters.instructions),
+                    inherit_instructions(
+                        platform_instructions
+                        if supports_style(self.kind, item.id, item.voice, resource, parameters.options.compatibility)
+                        else "",
+                        parameters.instructions,
+                    ),
                     voice_settings.instructions if voice_settings is not None else None,
                 )
                 validate_tone_settings(policy, self.kind, item.id, item.voice, resource, instructions)
@@ -396,7 +404,16 @@ class Profile(Model):
                 )
                 instructions = inherit_instructions(
                     inherit_instructions(
-                        platform_instructions, parameters.instructions if parameters is not None else None
+                        platform_instructions
+                        if supports_style(
+                            self.kind,
+                            voice.model or self.model,
+                            voice.id,
+                            resource,
+                            (parameters.options if parameters is not None else self.options).compatibility,
+                        )
+                        else "",
+                        parameters.instructions if parameters is not None else None,
                     ),
                     voice.instructions,
                 )
@@ -520,12 +537,27 @@ class Profile(Model):
     def _runtime_profile(self, data: Dict[str, Any]) -> "Profile":
         return Profile.model_validate(data, context={"platform_instructions": self.platform_instructions})
 
+    def _model_instructions(self, model_id: str, voice_id: str) -> str:
+        model = next((item for item in self.models if item.id == model_id), None)
+        parameters = model.parameters if model is not None else None
+        options = parameters.options if parameters is not None else self.options
+        voice = next((item for item in self.voices if item.id == voice_id and item.model in ("", model_id)), None)
+        resource = voice.resource_id if voice is not None and voice.resource_id else options.resource_id
+        parent = (
+            self.platform_instructions
+            if supports_style(self.kind, model_id, voice_id, resource, options.compatibility)
+            else ""
+        )
+        # 平台默认仅对支持风格的组合生效；显式覆盖保留给能力校验，不静默丢弃。
+        return inherit_instructions(parent, parameters.instructions if parameters is not None else None)
+
     def with_synthesis_overrides(self, *, voice: Optional[str] = None, speed: Optional[float] = None) -> "Profile":
         """验证本次合成的临时覆盖，同时保留平台风格来源。"""
         selected = self.for_model(self.model) if self._platform_instructions is None and self.model else self
         data = selected.model_dump()
         if voice is not None:
             data["voice"] = voice
+            data["instructions"] = selected._model_instructions(selected.model, voice)
         if speed is not None:
             data["speed"] = speed
         return selected._runtime_profile(data)
@@ -540,9 +572,7 @@ class Profile(Model):
         data["base_url"] = selected.base_url or ("" if selected.endpoint else self.base_url)
         if selected.parameters is not None:
             data.update(selected.parameters.model_dump())
-        data["instructions"] = inherit_instructions(
-            self.platform_instructions, selected.parameters.instructions if selected.parameters is not None else None
-        )
+        data["instructions"] = self._model_instructions(selected.id, selected.voice)
         if self.kind == "breeze":
             # 接入方式属于平台连接设置，各模型沿用同一个自托管或在线协议。
             data["options"]["breeze_api_mode"] = self.options.breeze_api_mode
