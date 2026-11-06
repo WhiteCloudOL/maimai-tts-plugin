@@ -4693,11 +4693,15 @@
 
       async function enableProbabilityTone(input) {
         const config = state.config, changes = [], supported = [], unsupported = [];
+        const list = (items) => `<ul class="tone-route-list">${items.map((label) => `<li>${h(label)}</li>`).join("")}</ul>`;
         // 按实际首选与备选路由解析音色覆盖，避免误改平台当前编辑的其他模型。
         for (const route of [config.primary, ...config.fallbacks].filter(Boolean)) {
-          const root = config.profiles.find((p) => p.id === route.provider_id && p.enabled),
+          const root = config.profiles.find((p) => p.id === route.provider_id),
             model = root?.models.find((m) => m.id === (route.model_id || root.model));
-          if (!model) continue;
+          if (!root?.enabled || !model) {
+            unsupported.push(`${root?.name || route.provider_id} / ${route.model_id || root?.model || "未配置模型"}（服务商或模型不可用）`);
+            continue;
+          }
           const p = modelProfile(root, model), id = route.voice ?? p.voice,
             voice = root.voices.find((v) => v.id === id && (!v.model || v.model === model.id)),
             cap = toneCapability(p, id, voice?.resource_id || p.options.resource_id),
@@ -4715,9 +4719,12 @@
           if (tone.allowed.length && !tone.allowed.includes(tone.emotion)) tone.allowed.push(tone.emotion);
           changes.push({root, model, p, voice, tone});
         }
-        if (!supported.length) {
+        if (!config.primary || unsupported.length || !supported.length) {
           input.checked = false;
-          showError("当前语音路由没有支持动态语调的模型或音色，请先调整语音路由。");
+          dialog("无法开启 LLM 语调自适应",
+            `<p role="alert">${!config.primary
+              ? "请先选择首选语音路由。"
+              : "以下路由的模型、音色或资源不支持动态语调，无法开启 LLM 语调自适应。"}</p>${list(unsupported)}<p class="muted">请先调整语音路由，确保首选和全部备选路由均支持动态语调。</p><div class="object-dialog-footer"><button class="maibot-button maibot-button-primary key primary" data-action="close-dialog">我知道了</button></div>`);
           return;
         }
         if (changes.some(({root}) => root.voices.length + changes.filter((item) => item.root === root && item.voice && !item.voice.model).length > 100)) {
@@ -4725,11 +4732,9 @@
           showError("当前平台音色收藏已满，请先为路由音色指定所属模型，再开启语调自适应。");
           return;
         }
-        const list = (items) => `<ul class="tone-route-list">${items.map((label) => `<li>${h(label)}</li>`).join("")}</ul>`;
         const accepted = await ask("开启概率语音 LLM 语调自适应？",
           changes.length ? "此功能仅对动态语调生效。是否同时开启下列路由模型或音色的动态语调？" : "下列路由已启用动态语调，是否开启 LLM 语调自适应？", {
             details: list(changes.length ? changes.map(({root, model, voice}) => `${root.name} / ${model.name || model.id}${voice ? " / " + voice.name : "（模型）"}`) : supported) +
-              (unsupported.length ? `<p class="muted">以下路由未提供动态语调，语调自适应不在这些路由上生效：</p>${list(unsupported)}` : "") +
               '<p class="muted">保存全部设置后生效；关闭此开关保留模型和音色的语调设置。</p>',
             confirmLabel: changes.length ? "开启并同步语调" : "开启",
           });
