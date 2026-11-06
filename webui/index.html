@@ -1095,6 +1095,10 @@
       .prompt-text-area textarea { width: 100%; height: 100%; min-height: 0; resize: none; font: 14px/1.7 var(--mono); }
       .prompt-edit-help { font-size: 11px; max-height: 130px; overflow: auto; }
       .prompt-edit-help summary { cursor: pointer; padding: 6px 0; }
+      .prompt-variable-list { display: grid; gap: 12px; padding: 8px 0; }
+      .prompt-variable { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
+      .prompt-variable button { justify-self: start; max-width: 100%; overflow-wrap: anywhere; }
+      .prompt-variable small { color: var(--muted); line-height: 1.6; }
       .prompt-edit-status { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--muted); }
       #prompt-character-count { white-space: nowrap; }
       .prompt-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -4891,7 +4895,7 @@
           saved = state.config.feature.prompt_overrides?.[platform]?.[kind]?.[language],
           custom = Boolean(saved?.trim()), value = custom ? saved : catalog.defaults[platform][kind][language],
           variables = catalog.variables[platform][kind];
-        return `<div class="prompt-edit-layout"><div class="prompt-edit-toolbar"><div class="flex-wrap"><strong>${h(catalog.platforms[platform])}</strong><span class="muted">${h(catalog.labels[kind])}</span></div><div class="prompt-languages" role="group" aria-label="编辑语言">${[["zh", "中文"], ["en", "English"], ["ja", "日本語"]].map(([key, label]) => `<button class="maibot-button key small ${key === language ? "active" : ""}" data-action="prompt-language" data-language="${key}" aria-pressed="${key === language}">${label}</button>`).join("")}</div><small>当前编辑${language === "zh" ? "中文" : language === "en" ? "英文" : "日文"}；实际调用沿用“语音提示语言”。同平台实例共用。</small></div><div class="prompt-text-area"><label class="sr-only" for="prompt-template">提示词内容</label><textarea id="prompt-template" data-prompt-editor class="maibot-input input" maxlength="4000" spellcheck="false">${h(value)}</textarea></div><div class="prompt-edit-help">${variables.length ? `<details><summary>插入变量 · ${variables.length} 项</summary><div class="flex-wrap">${variables.map((name) => `<button class="maibot-button key small mono" data-action="insert-prompt-variable" data-variable="${name}">{{${name}}}</button>`).join("")}</div></details>` : ""}<small>输出协议与平台限制由插件附加和校验。</small></div><div class="prompt-edit-footer"><div class="prompt-edit-status"><small id="prompt-editor-status" role="status">${custom ? "已自定义" : "使用内置默认"} · ${state.dirty ? "待保存" : "已保存"}</small><small id="prompt-character-count">${value.length} / 4000</small></div><div class="prompt-edit-actions"><button class="maibot-button key small" data-action="reset-prompt">恢复默认</button><button class="maibot-button key small" data-action="close-dialog">关闭</button><button class="maibot-button maibot-button-primary key small" data-action="save-prompt">保存全部设置</button></div></div></div>`;
+        return `<div class="prompt-edit-layout"><div class="prompt-edit-toolbar"><div class="flex-wrap"><strong>${h(catalog.platforms[platform])}</strong><span class="muted">${h(catalog.labels[kind])}</span></div><div class="prompt-languages" role="group" aria-label="编辑语言">${[["zh", "中文"], ["en", "English"], ["ja", "日本語"]].map(([key, label]) => `<button class="maibot-button key small ${key === language ? "active" : ""}" data-action="prompt-language" data-language="${key}" aria-pressed="${key === language}">${label}</button>`).join("")}</div><small>当前编辑${language === "zh" ? "中文" : language === "en" ? "英文" : "日文"}；实际调用沿用“语音提示语言”。同平台实例共用。</small></div><div class="prompt-text-area"><label class="sr-only" for="prompt-template">提示词内容</label><textarea id="prompt-template" data-prompt-editor class="maibot-input input" maxlength="4000" spellcheck="false">${h(value)}</textarea></div><div class="prompt-edit-help">${variables.length ? `<details><summary>插入变量 · ${variables.length} 项</summary><div class="prompt-variable-list">${variables.map((name) => `<div class="prompt-variable"><button class="maibot-button key small mono" data-action="insert-prompt-variable" data-variable="${name}" aria-describedby="prompt-variable-${name}">{{${name}}}</button><small id="prompt-variable-${name}">${h(catalog.variable_descriptions[name])}</small></div>`).join("")}</div></details>` : ""}<small>输出协议与平台限制由插件附加和校验。</small></div><div class="prompt-edit-footer"><div class="prompt-edit-status"><small id="prompt-editor-status" role="status">${custom ? "已自定义" : "使用内置默认"} · ${state.dirty ? "待保存" : "已保存"}</small><small id="prompt-character-count">${value.length} / 4000</small></div><div class="prompt-edit-actions"><button class="maibot-button key small" data-action="reset-prompt">恢复默认</button><button class="maibot-button key small" data-action="close-dialog">关闭</button><button class="maibot-button maibot-button-primary key small" data-action="save-prompt">保存全部设置</button></div></div></div>`;
       }
       function showPromptEditor() {
         state.promptDialog = true;
@@ -5345,6 +5349,7 @@
             throw Error("提示词最多 4000 字符。");
           editor.setRangeText(token, editor.selectionStart, editor.selectionEnd, "end");
           updatePromptOverride(editor.value);
+          button.closest("details").open = false;
           editor.focus();
         },
         "save-prompt": async () => {

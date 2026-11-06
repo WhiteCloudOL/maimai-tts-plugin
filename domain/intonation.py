@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import re
 
-from .prompts import DEFAULT_PROMPTS, render_prompt
+from .prompts import DEFAULT_PROMPTS, has_variable, render_prompt
 from .bailian import instruction_length
 from .volcengine import cot_text
 
@@ -301,10 +301,10 @@ def tone_prompt(
         {"allowed_tones": choices, "placement": placements[language],
          "default_tone": default, "example": example, "direction_limit": str(direction_limit)},
     )
-    if not re.search(r"\{\{\s*placement\s*\}\}", selected):
+    if not has_variable(selected, "placement"):
         prompt = placements[language] + "\n" + prompt
-    if not re.search(r"\{\{\s*allowed_tones\s*\}\}", selected):
-        prompt += "\n[mmtts:ID]: " + ", ".join(allowed)
+    if not has_variable(selected, "allowed_tones"):
+        prompt += "\n[mmtts:ID]: " + choices
     controls = {
         "zh": "也可改用 [mmtts:style=说话方式] 指定整段自由语气，描述最多 {limit} 字符；与 ID 标签二选一，正文保持纯文本。",
         "en": "Alternatively, use [mmtts:style=delivery description] for whole-utterance delivery, at most {limit} characters. Choose either this or the tone ID tag, and keep the body plain text.",
@@ -321,9 +321,9 @@ def tone_prompt(
         "ja": "漢字は2文字、他は1文字として数える。",
     }
     protocol = {
-        "zh": "整条回复只用一个开头标签：[mmtts:允许的ID]正文；ID 必须精确匹配以上列表。",
-        "en": "Use one leading tag per reply: [mmtts:allowed_ID]text, with an exact listed ID.",
-        "ja": "返信の先頭タグは一つ：[mmtts:許可ID]本文。IDは上記の一覧と完全一致させる。",
+        "zh": "推荐按需加语调标签；不加时沿用默认。使用时最多一个开头标签：[mmtts:允许的ID]正文，ID 须精确匹配列表。",
+        "en": "Tone tags are recommended when useful, not required; otherwise use the default. Use at most one leading [mmtts:allowed_ID] tag with an exact listed ID.",
+        "ja": "語調タグは必要に応じた推奨で、必須ではない。省略時は既定を使う。使う場合は先頭に[mmtts:許可ID]を最大一つ、IDは一覧と完全一致させる。",
     }
     prompt += "\n" + protocol[language] + "\n"
     return (

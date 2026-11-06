@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import json
 import re
 
-from .prompts import DEFAULT_PROMPTS, render_prompt
+from .prompts import DEFAULT_PROMPTS, has_variable, render_prompt
 
 
 # 官方标签表：https://docs.breezeblue.ai/guides/audio-tags
@@ -125,19 +125,19 @@ def control_prompt(
         "ja": "今回の音声返信だけに使用。" if automatic else "mmtts_speak.text だけに使用し、通常の返信には付けないでください。",
     }
     adaptive_rules = {
-        "zh": "整段基调由后置自适应补充；仍按需生成局部语气、事件与停顿，无需生成 [mmtts:ID] 头标签。",
-        "en": "Post-generation adaptation supplies the overall delivery; still add fitting local directions, events and pauses, without a leading [mmtts:ID]. ",
-        "ja": "全体の基調は生成後の自動調整が補う。局所的な話し方、イベント、間合いは引き続き指定し、先頭の [mmtts:ID] は不要。",
+        "zh": "整段基调可由后置自适应按需补充；仍可推荐局部语气、事件与停顿，无需生成 [mmtts:ID] 头标签。",
+        "en": "Post-generation adaptation may supplement delivery; still recommend fitting local directions, events and pauses when useful. No leading [mmtts:ID] is required. ",
+        "ja": "全体の基調は必要に応じて生成後に補う。局所的な話し方、イベント、間合いも適切な場合に勧め、先頭の[mmtts:ID]は不要。",
     }
     selected = template if template is not None else descriptions[language]
     prompt = render_prompt(selected, {"placement": placement[language], "event_tags": table})
     constraints = {
-        "zh": "控制格式：[语气:描述]作用于后文，到下一标记前；描述同台词语言、单行1–200字，每条最多8个。事件从表内选，整条使用同一种语言标签；一处一个停顿，不自造时长。完整保留台词。",
-        "en": "Controls: [style:direction] applies until the next marker; use the dialogue language, 1–200 single-line characters, at most 8 markers. Use one listed tag language per reply and one pause per position; invent no durations. Preserve all dialogue.",
-        "ja": "構文：[話し方:説明]は次の指定まで適用。同じ言語の一行1–200文字、最大8個。イベントは一覧の同じ言語で選び、一か所一つの間合いにし、秒数を自作しない。台詞は省略しない。",
+        "zh": "语气与事件推荐按需使用，均非必填。使用时：[语气:描述]作用于后文，到下一标记前；描述同台词语言、单行1–200字，每条最多8个。事件从同一种语言表内选，一处一个停顿，不自造时长。完整保留台词。",
+        "en": "Delivery and events are recommended when useful, not required. [style:direction] applies until the next marker: dialogue language, 1–200 single-line characters, max 8 markers. Use one listed tag language and one pause per position; invent no durations. Preserve all dialogue.",
+        "ja": "話し方とイベントは必要に応じた推奨で必須ではない。[話し方:説明]は次の指定まで、同言語の一行1–200文字、最大8個。イベントは同じ言語の表から選び、一か所一つの間合いとし、秒数は自作しない。台詞は省略しない。",
     }
-    if not re.search(r"\{\{\s*placement\s*\}\}", selected):
+    if not has_variable(selected, "placement"):
         prompt = placement[language] + prompt
-    if not re.search(r"\{\{\s*event_tags\s*\}\}", selected):
+    if not has_variable(selected, "event_tags"):
         prompt += "\n" + table
     return prompt + "\n" + constraints[language] + ("\n" + adaptive_rules[language] if adaptive else "")

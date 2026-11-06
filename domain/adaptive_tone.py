@@ -11,7 +11,7 @@ from .bailian import instruction_length
 from .breeze_control import COMMON_EVENT_INDICES, event_tags
 from .style import supports_style
 from .volcengine import cot_text
-from .prompts import DEFAULT_PROMPTS, render_prompt
+from .prompts import DEFAULT_PROMPTS, has_variable, render_prompt
 
 
 @dataclass(frozen=True)
@@ -106,9 +106,9 @@ def adaptive_prompt(
         "ja": "このモデルは自由な話し方を指定できる。direction は本文と同じ言語で {limit} 文字以内の一行とし、角括弧を含めない。指定時は tone の話し方に代わり適用する。不要なら空にする。{count}",
     }
     strict = {
-        "zh": "当前平台仅输出 tone 字段，不输出 direction、自由语气描述或其他字段。",
-        "en": "For this platform, return the tone field only, without direction, free-form delivery descriptions or other fields.",
-        "ja": "このプラットフォームでは tone フィールドのみを返し、direction、自由な話し方の説明、他のフィールドを追加しない。",
+        "zh": "此平台如需指定语调，仅输出 tone 字段；不需要时输出 {}。不输出 direction 或自由语气。",
+        "en": "For this platform, optionally return tone only, or {} for the default; do not add direction or free delivery.",
+        "ja": "この平台では必要ならtoneだけを返し、不要なら{}で既定を使う。directionや自由な話し方は追加しない。",
     }
     retries = {
         "zh": "上次输出校验失败：{error}。请按上述示例和允许列表重新输出。",
@@ -133,40 +133,41 @@ def adaptive_prompt(
             selected, {"allowed_tones": json.dumps(tones), "direction_limit": "200", "event_tags": table}
         )
         formats = {
-            "zh": '仅输出 JSON：{"direction":"说话方式","events":[{"before":"原文唯一连续短语","tag":"表内标签"}]}。direction 为同语言1–200字；events 最多3处、一处一个，before须原样唯一且最多80字，不改写正文，只用同一种语言标签表。tone可省略，填写时须使用允许的ID。',
-            "en": 'Return only JSON: {"direction":"delivery","events":[{"before":"unique exact phrase","tag":"listed tag"}]}. direction: 1–200 chars in the text language. Up to 3 events, one per anchor; before is an unchanged unique phrase of 1–80 chars. Do not rewrite text; use one tag language. Optional tone must use an allowed ID.',
-            "ja": 'JSONのみ：{"direction":"話し方","events":[{"before":"原文の一意な連続句","tag":"表のタグ"}]}。directionは同言語で1–200文字。eventsは最大3個、一か所一つ、beforeは原文そのままの一意な1–80文字。本文は書き換えず同じ言語のタグ表を使う。toneは省略可能、指定時は許可IDのみ。',
+            "zh": '推荐按需添加控制，均可省略。仅输出 JSON，如 {"direction":"说话方式","events":[{"before":"原文唯一短语","tag":"表内标签"}]}；无需额外控制时输出 {}。direction 单行同语言1–200字；events 最多3处，每处一个同语言表内事件，before须原样唯一且最多80字。tone填写时须为允许的ID。',
+            "en": 'Controls are optional. Return JSON, e.g. {"direction":"delivery","events":[{"before":"unique exact phrase","tag":"listed tag"}]}, or {} for defaults. direction: single-line 1–200 chars in the text language. Max 3 events, one per unique unchanged 1–80-char anchor, from one tag language. Optional tone must be an allowed ID.',
+            "ja": '制御は任意。JSON例：{"direction":"話し方","events":[{"before":"原文の一意な句","tag":"表のタグ"}]}、不要なら{}。directionは同言語の一行1–200文字。eventsは最大3個、原文の一意な1–80文字の句に一つずつ、同じ言語の表から選ぶ。toneを使う場合は許可IDのみ。',
         }
-        return "\n".join(
-            [base, data_rules[language], formats[language], "tone: " + json.dumps(tones), tone_meanings, table or existing[language]]
-            + ([retries[language].format(error=feedback)] if feedback else [])
-        )
+        parts = [
+            base, data_rules[language], formats[language],
+            "" if has_variable(selected, "allowed_tones") else "tone: " + json.dumps(tones),
+            tone_meanings,
+            ("" if has_variable(selected, "event_tags") else table) if table else existing[language],
+        ] + ([retries[language].format(error=feedback)] if feedback else [])
+        return "\n".join(part for part in parts if part)
     counts = {
         "zh": "汉字计 2 字符，其他计 1。",
         "en": " Han characters count as 2; others as 1.",
         "ja": "漢字は2文字、他は1文字として数える。",
     }
     formats = {
-        "zh": "仅输出一个 JSON 对象，tone 必须精确选自允许的英文 ID；不翻译 ID、不改写正文、不输出解释。",
-        "en": "Return one JSON object only. Choose tone exactly from the allowed English IDs; do not translate IDs, rewrite text or add explanations.",
-        "ja": "JSON オブジェクト一つのみを返す。tone は許可された英語 ID と完全一致させ、ID の翻訳、本文の書き換え、説明を追加しない。",
+        "zh": "推荐按需选择语调，并非必须。仅输出一个 JSON 对象，无需额外控制时输出 {}；tone 填写时须精确匹配允许的英文 ID，不翻译 ID、不改写正文、不输出解释。",
+        "en": "Recommend a tone when useful, not mandatory. Return one JSON object, or {} for defaults. If supplied, tone must match an allowed English ID; do not translate IDs, rewrite text or explain.",
+        "ja": "語調は必要に応じた推奨で必須ではない。JSON一つ、不要なら{}で既定を使う。toneを指定する場合は許可された英語IDと完全一致させ、IDの翻訳、本文の書き換え、説明はしない。",
     }
-    return "\n".join(
-        [
-            render_prompt(
-                template if template is not None else prompts[language],
-                {"allowed_tones": json.dumps(tones), "direction_limit": str(max_direction_length)},
-            ),
-            formats[language],
-            "tone: " + json.dumps(tones),
-            tone_meanings,
-            example,
-            directions[language].format(limit=max_direction_length, count=counts[language] if weighted else "")
-            if free_direction
-            else strict[language],
-        ]
-        + ([retries[language].format(error=feedback)] if feedback else [])
-    )
+    selected = template if template is not None else prompts[language]
+    parts = [
+        render_prompt(
+            selected,
+            {"allowed_tones": json.dumps(tones), "direction_limit": str(max_direction_length if free_direction else 0)},
+        ),
+        formats[language],
+        "" if has_variable(selected, "allowed_tones") else "tone: " + json.dumps(tones),
+        tone_meanings,
+        example,
+        directions[language].format(limit=max_direction_length, count=counts[language] if weighted else "")
+        if free_direction else strict[language],
+    ] + ([retries[language].format(error=feedback)] if feedback else [])
+    return "\n".join(part for part in parts if part)
 
 
 def parse_adaptive_tone(
@@ -188,7 +189,7 @@ def parse_adaptive_tone(
     if not isinstance(data, dict) or set(data) - ({"tone", "direction", "events"} if breeze else {"tone", "direction"}):
         raise TTSError("语调 LLM 返回了不支持的字段")
     tone, direction = data.get("tone"), data.get("direction", "")
-    if not (breeze and tone is None) and (not isinstance(tone, str) or tone not in tones):
+    if tone is not None and (not isinstance(tone, str) or tone not in tones):
         raise TTSError("语调 LLM 选择了允许列表以外的语调")
     if not isinstance(direction, str) or len(direction) > 200 or any(c in direction for c in "[]\r\n"):
         raise TTSError("语调 LLM 的说话方式须为不含控制标记的 200 字以内单行文字")
@@ -223,6 +224,4 @@ def parse_adaptive_tone(
                 raise TTSError("Breeze 同一位置只插入一个事件")
             positions.add(offset)
             events.append(BreezeEvent(before, tag))
-        if tone is None and not direction and not events:
-            raise TTSError("Breeze 须提供具体 direction、有效 tone 或局部事件")
     return ToneDecision(tone, direction, tuple(events))
