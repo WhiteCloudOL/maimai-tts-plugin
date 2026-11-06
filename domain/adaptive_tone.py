@@ -33,8 +33,9 @@ def direction_limit(profile: Profile) -> int:
     if profile.kind in {"openai", "compatible"}:
         return max(0, min(200, 4096 - len(profile.instructions) - separator))
     if profile.kind == "volcengine" and profile.options.volc_instruction_mode == "cot":
+        # 正文中的 & 等字符会转义为最多 5 字符，须为一个完整实体预留空间。
         return max(
-            0, min(200, 64 - len('<cot text=""></cot>') - len(escape(profile.instructions, quote=True)) - separator - 1)
+            0, min(200, 64 - len('<cot text=""></cot>') - len(escape(profile.instructions, quote=True)) - separator - 5)
         )
     return 200
 

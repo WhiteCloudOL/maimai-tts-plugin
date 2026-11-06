@@ -33,9 +33,12 @@ class ProbabilityToneAdapter:
         if cap is None:
             return None
         tones = profile.tone.allowed or cap["tones"]
-        # 只在同一轮内复用兼容决定；不同允许列表、自由指令能力和剩余长度分别分类。
+        # 只在同一轮内复用兼容决定；不同允许列表、自由指令能力、剩余长度和计数规则分别分类。
         # 不持久缓存 LLM 分类，避免模型/提示/语调配置变更后沿用旧决定。
-        key = json.dumps([tones, profile.kind == "breeze", direction_limit(profile), profile.kind == "cosyvoice"])
+        xml_instructions = profile.kind == "volcengine" and profile.options.volc_instruction_mode == "cot"
+        key = json.dumps(
+            [tones, profile.kind == "breeze", direction_limit(profile), profile.kind == "cosyvoice", xml_instructions]
+        )
         if key in self.decisions:
             return self.decisions[key]
         decision = await self._classify(profile, tones)

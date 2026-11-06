@@ -303,15 +303,15 @@ class TTSService:
                     selected = selected.with_synthesis_overrides(speed=speed)
                 requested = parsed.tone
                 direction = parsed.direction
-                route_text = text
                 if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or direction or free_directions):
                     decision = await tone_adapter(selected)
                     if decision is not None:
                         requested = decision.tone
                         direction = decision.direction
-                if selected.kind == "breeze" and direction:
-                    route_text = f"[语气:{direction}]" + text
-                requests = breeze_requests(selected, route_text, requested) if selected.kind == "breeze" else None
+                requests = (
+                    breeze_requests(selected, text, requested, direction=direction)
+                    if selected.kind == "breeze" else None
+                )
                 selected, emotion = apply_tone(selected, requested, direction=direction)
                 if requests is not None and free_directions:
                     self.log.info("应用 Breeze 分段语气", provider=selected.name, model=selected.model, sections=len(requests))

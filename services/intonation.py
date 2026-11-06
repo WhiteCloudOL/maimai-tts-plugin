@@ -60,8 +60,10 @@ def apply_tone(profile: Profile, requested: Optional[str], *, direction: str = "
     return selected, emotion
 
 
-def breeze_requests(profile: Profile, text: str, requested: Optional[str]) -> List[Tuple[Profile, str]]:
-    """自由语气替代所在区段的固定语调；未标记区段继续沿用模型、音色与头部语调。"""
+def breeze_requests(
+    profile: Profile, text: str, requested: Optional[str], *, direction: str = ""
+) -> List[Tuple[Profile, str]]:
+    """局部自由语气覆盖整段自由语气；未标记区段沿用整段描述或模型、音色与头部语调。"""
     parsed = parse_breeze_text(text)
     if parsed.error:
         raise TTSError(parsed.error)
@@ -71,11 +73,7 @@ def breeze_requests(profile: Profile, text: str, requested: Optional[str]) -> Li
         raise TTSError("Breeze 自由语气需要在当前模型或音色中启用动态语调")
     requests: List[Tuple[Profile, str]] = []
     for part in parsed.parts:
-        if part.direction:
-            instructions = "\n".join(value for value in (profile.instructions, part.direction) if value)
-            selected = profile.model_copy(deep=True, update={"instructions": instructions})
-        else:
-            selected, _ = apply_tone(profile, requested)
+        selected, _ = apply_tone(profile, requested, direction=part.direction or direction)
         if len(parsed.parts) > 1:
             selected = selected.model_copy(deep=True, update={"response_format": "wav"})
         requests.append((selected, part.text))
