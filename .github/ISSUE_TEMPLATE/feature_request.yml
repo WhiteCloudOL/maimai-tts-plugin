@@ -1,12 +1,24 @@
 name: 功能建议
 description: 提出使用体验或功能改进建议
 title: "[功能建议] "
+labels: [enhancement]
 body:
   - type: input
     id: platform
     attributes:
       label: 相关 TTS 平台
       placeholder: 例如：BreezeTTS、OpenAI、阿里云_千问；通用建议填写“通用”
+    validations:
+      required: true
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: 系统环境
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - 其他
     validations:
       required: true
   - type: textarea
@@ -22,3 +34,12 @@ body:
     attributes:
       label: 补充说明（选填）
       description: 可以附参考链接、截图或操作示例
+  - type: dropdown
+    id: pull_request
+    attributes:
+      label: 是否愿意提交 Pull Request
+      options:
+        - 愿意
+        - 暂不考虑
+    validations:
+      required: true

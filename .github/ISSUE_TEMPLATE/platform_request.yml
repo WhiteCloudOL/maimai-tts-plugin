@@ -1,6 +1,7 @@
 name: 平台接入申请
 description: 申请接入新的 TTS 平台或 API 服务
 title: "[平台接入] "
+labels: [enhancement]
 body:
   - type: input
     id: platform_name
@@ -27,3 +28,12 @@ body:
     attributes:
       label: 补充说明（选填）
       description: 可以说明希望使用的模型、音色克隆等功能
+  - type: dropdown
+    id: pull_request
+    attributes:
+      label: 是否愿意提交 Pull Request
+      options:
+        - 愿意
+        - 暂不考虑
+    validations:
+      required: true

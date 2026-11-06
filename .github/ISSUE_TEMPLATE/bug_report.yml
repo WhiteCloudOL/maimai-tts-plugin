@@ -1,10 +1,11 @@
 name: 问题反馈
 description: 反馈插件报错或使用异常
 title: "[BUG] "
+labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: 请按下面的提示填写，方便定位问题。日志和截图中的 API Key 等凭据请先遮住。
+      value: 请按下面的提示填写，方便定位问题。日志和截图中的 API Key 等凭据请先遮住
   - type: input
     id: maibot_version
     attributes:
@@ -16,7 +17,7 @@ body:
     id: plugin_version
     attributes:
       label: 插件版本
-      placeholder: 例如：2.0.3
+      placeholder: 例如：2.1.2
     validations:
       required: true
   - type: input
@@ -24,6 +25,17 @@ body:
     attributes:
       label: 相关 TTS 平台
       placeholder: 例如：BreezeTTS、OpenAI、阿里云_千问；通用问题填写“通用”
+    validations:
+      required: true
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: 系统环境
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - 其他
     validations:
       required: true
   - type: textarea
@@ -47,3 +59,12 @@ body:
     attributes:
       label: 使用的适配器（选填）
       placeholder: 例如：QQ 官方、SnowLuma、NapCat
+  - type: dropdown
+    id: pull_request
+    attributes:
+      label: 是否愿意提交 Pull Request
+      options:
+        - 愿意
+        - 暂不考虑
+    validations:
+      required: true
