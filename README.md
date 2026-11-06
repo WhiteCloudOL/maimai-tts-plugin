@@ -4,7 +4,7 @@
 
 # 麦麦多平台 TTS 语音插件
 
-[![Plugin 2.1.2](https://img.shields.io/badge/Plugin-2.1.2-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.1.2)
+[![Plugin 2.1.3](https://img.shields.io/badge/Plugin-2.1.3-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.1.3)
 [![MaiBot 1.3.6–1.4.99](https://img.shields.io/badge/MaiBot-1.3.6--1.4.99-007ec6?style=flat)](#-快速开始)
 [![Plugin SDK 2.13.0–2.21.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.21.0-8A2BE2?style=flat)](#-快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
@@ -106,7 +106,7 @@
 
 指令型模型（如火山 expressive、OpenAI）还可用 `[mmtts:style=轻声而温柔]你好。` 指定整段自由语气，与 `[mmtts:ID]` 头部标签任选一种。MiniMax、CosyVoice 原生情感音色严格使用各自允许的 ID；Breeze 保留局部语气、音频事件与停顿语法。指令长度按实际平台限制校验，CosyVoice 按汉字权重计数，火山 COT 包含标签与转义内容不超过 64 字符。
 
-开启 LLM 语调自适应时，弹窗会列出实际首选与备选路由使用的模型或音色。确认后同步开启支持组合的动态模式，取消则恢复关闭；保存全部设置后生效。
+开启 LLM 语调自适应时，会检查首选和全部备选路由。任一路由的模型、音色或资源不支持动态语调，或服务商、模型不可用时，弹窗会列出具体路由并保持开关关闭。全部支持后才可确认开启，并同步相应模型或音色的动态模式；取消则恢复关闭，保存全部设置后生效。
 
 <details>
 <summary><b>📂 点击展开：本地参考录音导入指南（Windows / Linux / Docker）</b></summary>
