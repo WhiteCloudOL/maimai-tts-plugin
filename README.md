@@ -4,7 +4,7 @@
 
 # 麦麦多平台 TTS 语音插件
 
-[![Plugin 2.1.1](https://img.shields.io/badge/Plugin-2.1.1-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.1.1)
+[![Plugin 2.1.2](https://img.shields.io/badge/Plugin-2.1.2-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.1.2)
 [![MaiBot 1.3.6–1.4.99](https://img.shields.io/badge/MaiBot-1.3.6--1.4.99-007ec6?style=flat)](#-快速开始)
 [![Plugin SDK 2.13.0–2.21.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.21.0-8A2BE2?style=flat)](#-快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
@@ -103,6 +103,10 @@
 3. **动态语调**：勾选允许列表后，提供两种驱动方式：
    - **主模型标签驱动**：麦麦回复时在开头输出如 `[mmtts:happy]今天很高兴见到你`，插件校验后自动提取为合成参数并清除标签文本。
    - **概率语音 LLM 语调自适应**：在「回复行为」中开启后，无需主回复模型输出标签，当抽中概率语音时，由指定任务（如 `utils`、`replyer`、`planner`、`vlm`）绑定的模型与服务商判断语气。仅对动态语调路由生效；单次超时默认 60 秒，失败后默认重试 3 次，均可调整，推荐使用低延迟模型。
+
+指令型模型（如火山 expressive、OpenAI）还可用 `[mmtts:style=轻声而温柔]你好。` 指定整段自由语气，与 `[mmtts:ID]` 头部标签任选一种。MiniMax、CosyVoice 原生情感音色严格使用各自允许的 ID；Breeze 保留局部语气、音频事件与停顿语法。指令长度按实际平台限制校验，CosyVoice 按汉字权重计数，火山 COT 包含标签与转义内容不超过 64 字符。
+
+开启 LLM 语调自适应时，弹窗会列出实际首选与备选路由使用的模型或音色。确认后同步开启支持组合的动态模式，取消则恢复关闭；保存全部设置后生效。
 
 <details>
 <summary><b>📂 点击展开：本地参考录音导入指南（Windows / Linux / Docker）</b></summary>
