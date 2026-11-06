@@ -12,6 +12,8 @@ class GPTSoVITSProvider(OpenAIProvider):
     models_path = ""
 
     def payload(self, profile: Profile, text: str) -> Dict[str, Any]:
+        if profile.instructions:
+            raise TTSError("GPT-SoVITS API v2 不支持自由风格指令，请清空平台、模型和音色的风格描述")
         opts = profile.options
         if opts.reference_source != "file" and not opts.reference_path:
             raise TTSError("请填写 GPT-SoVITS 服务端参考音频路径")

@@ -250,13 +250,10 @@ class TTSService:
             initial = profiles[first.provider_id]
             if first.model_id:
                 initial = initial.for_model(first.model_id)
-            values = initial.model_dump()
-            if first.voice is not None:
-                values["voice"] = first.voice
-            if voice is not None:
-                values["voice"] = initial.resolve_voice_id(voice)
             try:
-                initial = Profile.model_validate(values).with_selected_voice()
+                initial = initial.with_synthesis_overrides(
+                    voice=initial.resolve_voice_id(voice) if voice is not None else first.voice
+                ).with_selected_voice()
                 validate_requested_tone(initial, parsed.tone)
                 if free_directions and initial.tone.mode != "dynamic":
                     raise TTSError("Breeze 自由语气需要在当前模型或音色中启用动态语调")
@@ -286,12 +283,9 @@ class TTSService:
             )
             try:
                 model_profile = profile.for_model(target.model_id) if target.model_id else profile
-                values = model_profile.model_dump()
-                if target.voice is not None:
-                    values["voice"] = target.voice
-                if voice is not None:
-                    values["voice"] = model_profile.resolve_voice_id(voice)
-                selected = Profile.model_validate(values).with_selected_voice()
+                selected = model_profile.with_synthesis_overrides(
+                    voice=model_profile.resolve_voice_id(voice) if voice is not None else target.voice
+                ).with_selected_voice()
                 self.log.info(
                     "本次语音路由",
                     provider=selected.name,
@@ -302,7 +296,7 @@ class TTSService:
                 )
                 if speed is not None:
                     # 临时语速是本次调用的最终覆盖，优先于模型及音色保存的语速。
-                    selected = Profile.model_validate({**selected.model_dump(), "speed": speed})
+                    selected = selected.with_synthesis_overrides(speed=speed)
                 requested = parsed.tone
                 route_text = text
                 if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or free_directions):

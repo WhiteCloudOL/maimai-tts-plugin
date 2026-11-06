@@ -1,11 +1,21 @@
 """独立配置与服务边界的数据契约。"""
 
 from dataclasses import dataclass
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .intonation import TONE_LABELS, validate_tone_settings
+from .style import inherit_instructions
 from .bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH_RATES
 from .compatibility import CompatibilityOptions, template_variables
 from .minimax import FORMATS as MINIMAX_FORMATS, OLD_MODEL_LANGUAGES, emotions as minimax_emotions
@@ -249,6 +259,9 @@ class NetworkSettings(Model):
 
 
 class Profile(Model):
+    # 合成中的模型/音色覆盖不能成为其他模型的默认值；运行时来源不写入配置或缓存键。
+    _platform_instructions: Optional[str] = PrivateAttr(default=None)
+
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     name: str = Field(min_length=1, max_length=80)
     kind: ProviderKind
@@ -287,20 +300,33 @@ class Profile(Model):
         return value
 
     @model_validator(mode="after")
-    def validate_addresses_and_format(self) -> "Profile":
+    def validate_addresses_and_format(self, info: ValidationInfo) -> "Profile":
+        if isinstance(info.context, dict) and "platform_instructions" in info.context:
+            self._platform_instructions = info.context["platform_instructions"]
+        platform_instructions = self.platform_instructions
+        current_model = next((item for item in self.models if item.id == self.model), None)
+        current_parameters = current_model.parameters if current_model is not None else None
+        resolved = self._platform_instructions is not None
+        current_options = self.options if resolved or current_parameters is None else current_parameters.options
+        current_tone = self.tone if resolved or current_parameters is None else current_parameters.tone
         selected_voice = next((v for v in self.voices if v.id == self.voice and v.model in ("", self.model)), None)
         effective_tone = (
-            selected_voice.tone if selected_voice is not None and selected_voice.tone is not None else self.tone
+            selected_voice.tone if selected_voice is not None and selected_voice.tone is not None else current_tone
         )
         resource_id = (
             selected_voice.resource_id
             if selected_voice is not None and selected_voice.resource_id
-            else self.options.resource_id
+            else current_options.resource_id
         )
-        active_instructions = (
-            selected_voice.instructions
-            if selected_voice is not None and selected_voice.instructions is not None
-            else self.instructions
+        model_instructions = (
+            self.instructions
+            if resolved
+            else inherit_instructions(
+                platform_instructions, current_parameters.instructions if current_parameters is not None else None
+            )
+        )
+        active_instructions = inherit_instructions(
+            model_instructions, selected_voice.instructions if selected_voice is not None else None
         )
         validate_tone_settings(effective_tone, self.kind, self.model, self.voice, resource_id, active_instructions)
         if self.kind == "volcengine":
@@ -311,7 +337,7 @@ class Profile(Model):
             if self.options.volc_design_image_url:
                 validate_url(self.options.volc_design_image_url)
         if self.kind == "compatible":
-            validate_custom_instructions(self.options, effective_tone, active_instructions)
+            validate_custom_instructions(current_options, effective_tone, active_instructions)
         ids = [item.id for item in self.models]
         if len(ids) != len(set(ids)):
             raise ValueError("平台内的模型 ID 需要保持唯一")
@@ -334,10 +360,9 @@ class Profile(Model):
                     if voice_settings is not None and voice_settings.resource_id
                     else parameters.options.resource_id
                 )
-                instructions = (
-                    voice_settings.instructions
-                    if voice_settings is not None and voice_settings.instructions is not None
-                    else parameters.instructions
+                instructions = inherit_instructions(
+                    inherit_instructions(platform_instructions, parameters.instructions),
+                    voice_settings.instructions if voice_settings is not None else None,
                 )
                 validate_tone_settings(policy, self.kind, item.id, item.voice, resource, instructions)
                 if self.kind == "compatible":
@@ -369,10 +394,11 @@ class Profile(Model):
                 resource = voice.resource_id or (
                     parameters.options.resource_id if parameters else self.options.resource_id
                 )
-                instructions = (
-                    voice.instructions
-                    if voice.instructions is not None
-                    else (parameters.instructions if parameters else self.instructions)
+                instructions = inherit_instructions(
+                    inherit_instructions(
+                        platform_instructions, parameters.instructions if parameters is not None else None
+                    ),
+                    voice.instructions,
                 )
                 validate_tone_settings(
                     voice.tone, self.kind, voice.model or self.model, voice.id, resource, instructions
@@ -487,6 +513,23 @@ class Profile(Model):
                     raise ValueError("Breeze 在线流式输出支持 PCM、MP3 和 WAV")
         return self
 
+    @property
+    def platform_instructions(self) -> str:
+        return self.instructions if self._platform_instructions is None else self._platform_instructions
+
+    def _runtime_profile(self, data: Dict[str, Any]) -> "Profile":
+        return Profile.model_validate(data, context={"platform_instructions": self.platform_instructions})
+
+    def with_synthesis_overrides(self, *, voice: Optional[str] = None, speed: Optional[float] = None) -> "Profile":
+        """验证本次合成的临时覆盖，同时保留平台风格来源。"""
+        selected = self.for_model(self.model) if self._platform_instructions is None and self.model else self
+        data = selected.model_dump()
+        if voice is not None:
+            data["voice"] = voice
+        if speed is not None:
+            data["speed"] = speed
+        return selected._runtime_profile(data)
+
     def for_model(self, model_id: str) -> "Profile":
         """从模型库解析操作目标，保持平台编辑上下文和其他模型独立。"""
         selected = next((item for item in self.models if item.id == model_id), None)
@@ -497,6 +540,9 @@ class Profile(Model):
         data["base_url"] = selected.base_url or ("" if selected.endpoint else self.base_url)
         if selected.parameters is not None:
             data.update(selected.parameters.model_dump())
+        data["instructions"] = inherit_instructions(
+            self.platform_instructions, selected.parameters.instructions if selected.parameters is not None else None
+        )
         if self.kind == "breeze":
             # 接入方式属于平台连接设置，各模型沿用同一个自托管或在线协议。
             data["options"]["breeze_api_mode"] = self.options.breeze_api_mode
@@ -505,7 +551,7 @@ class Profile(Model):
             query = [(key, value) for key, value in parse_qsl(parsed.query) if key != "model"]
             query.append(("model", selected.id))
             data["endpoint"] = urlunsplit(parsed._replace(query=urlencode(query)))
-        return Profile.model_validate(data)
+        return self._runtime_profile(data)
 
     def resolve_voice_id(self, value: str) -> str:
         voices = [item for item in self.voices if item.model in ("", self.model)]
@@ -517,6 +563,8 @@ class Profile(Model):
         return matches[0] if matches else value
 
     def with_selected_voice(self) -> "Profile":
+        if self._platform_instructions is None and self.model:
+            return self.for_model(self.model).with_selected_voice()
         selected = next(
             (item for item in self.voices if item.id == self.voice and item.model in ("", self.model)), None
         )
@@ -525,8 +573,7 @@ class Profile(Model):
         if selected.clone_state != "ready":
             raise TTSError("此音色正在训练或训练失败，请在音色克隆页面查询状态后再使用")
         data = self.model_dump()
-        if selected.instructions is not None:
-            data["instructions"] = selected.instructions
+        data["instructions"] = inherit_instructions(self.instructions, selected.instructions)
         if selected.speed is not None:
             data["speed"] = selected.speed
         if selected.custom_voice is not None and self.kind in {"openai", "compatible"}:
@@ -541,7 +588,7 @@ class Profile(Model):
             elif selected.origin == "design":
                 data["options"]["breeze_mode"] = "design"
         if selected.reference is None:
-            return Profile.model_validate(data)
+            return self._runtime_profile(data)
         reference = selected.reference
         data["options"].update(reference_source=reference.source, reference_text=reference.text)
         if self.kind == "siliconflow":
@@ -549,7 +596,7 @@ class Profile(Model):
         data["options"][
             {"url": "reference_url", "file": "reference_file", "server": "reference_path"}[reference.source]
         ] = reference.url if reference.source == "url" else reference.path
-        return Profile.model_validate(data)
+        return self._runtime_profile(data)
 
     @field_validator("api_key")
     @classmethod

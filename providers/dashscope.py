@@ -45,8 +45,9 @@ class CosyVoiceProvider(BailianVoiceProvider):
             "rate": profile.speed,
             "pitch": profile.options.pitch,
         }
-        if profile.instructions:
-            parameters["instruction"] = profile.instructions
+        instruction = self.speech_instruction(profile)
+        if instruction:
+            parameters["instruction"] = instruction
         audio = bytearray()
         finished = False
         async with self.http.session.ws_connect(

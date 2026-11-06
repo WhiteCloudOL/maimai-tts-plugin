@@ -59,10 +59,7 @@ class IntonationMixin:
         profile = self.store.profile(target.provider_id)
         if target.model_id:
             profile = profile.for_model(target.model_id)
-        values = profile.model_dump()
-        if target.voice is not None:
-            values["voice"] = target.voice
-        return Profile.model_validate(values).with_selected_voice()
+        return profile.with_synthesis_overrides(voice=target.voice).with_selected_voice()
 
     def dynamic_tone_prompt(self, *, automatic: bool) -> str:
         profile = self.primary_tone_profile()

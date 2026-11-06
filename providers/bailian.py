@@ -23,6 +23,16 @@ class BailianVoiceProvider(Provider):
             values["details_url"] = self.enrollment_url(profile)
         return values
 
+    def speech_instruction(self, profile: Profile) -> str:
+        """HTTP 与 WebSocket 对同一模型、音色使用相同的指令能力和长度约束。"""
+        if not profile.instructions:
+            return ""
+        if tone_capability(profile.kind, profile.model, profile.voice, "") is None:
+            raise TTSError("此模型与音色使用原生语速等参数，请选择支持指令的组合后设置风格")
+        if profile.kind == "cosyvoice" and sum(2 if ord(c) > 127 else 1 for c in profile.instructions) > 100:
+            raise TTSError("CosyVoice 风格与语调合计超过 100 字符上限（中文按 2 字符计算）")
+        return profile.instructions
+
     async def speech_http(self, profile: Profile, text: str) -> Audio:
         """非流式接口只有 finish_reason=stop 才产生可发送的完整音频。"""
         options = profile.options
@@ -41,10 +51,9 @@ class BailianVoiceProvider(Provider):
             if options.sample_rate not in {8000, 12000, 16000, 24000, 48000}:
                 raise TTSError("Opus 采样率请选择 8000、12000、16000、24000 或 48000")
             inputs["bit_rate"] = options.opus_bit_rate
-        if profile.instructions:
-            if tone_capability(profile.kind, profile.model, profile.voice, "") is None:
-                raise TTSError("此模型与音色使用原生语速等参数，请选择支持指令的组合后设置风格")
-            inputs["instruction"] = profile.instructions
+        instruction = self.speech_instruction(profile)
+        if instruction:
+            inputs["instruction"] = instruction
         if options.seed is not None:
             inputs["seed"] = options.seed
         if options.voice_language:

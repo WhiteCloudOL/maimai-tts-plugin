@@ -2572,25 +2572,41 @@
       function editingProfile() {
         return state.modelEditor?.profile || current();
       }
+      function styleOverride(value) {
+        return value?.trim() ? value : "";
+      }
+      function modelProfile(base, model) {
+        const parameters = model.parameters || {},
+          p = {
+            ...base,
+            ...parameters,
+            model: model.id,
+            voice: model.voice,
+            endpoint: model.endpoint || base.endpoint,
+            base_url: model.base_url || (model.endpoint ? "" : base.base_url) || "",
+            // 编辑和保存保留原始覆盖值，继承内容仅用于提示与服务端合成。
+            instructions: styleOverride(parameters.instructions),
+            options: structuredClone(parameters.options || base.options),
+            tone: structuredClone(parameters.tone || base.tone || emptyTone()),
+          };
+        if (p.kind === "breeze") p.options.breeze_api_mode = base.options.breeze_api_mode;
+        return p;
+      }
+      function modelStyleField(p) {
+        const parent = styleOverride(state.modelEditor.root.instructions);
+        return `<div class="field wide"><label for="model-style">模型风格描述</label><textarea id="model-style" class="maibot-input input" data-field="instructions" maxlength="4096" rows="3" placeholder="${h(parent || "留空沿用平台默认风格")}">${h(p.instructions)}</textarea><small>留空沿用平台默认风格；音色中可分别设置风格。</small><small>当前平台默认：${h(parent || "未设置")}</small></div>`;
+      }
+      function platformStyleForm(p) {
+        if (!["openai", "compatible", "qwen", "cosyvoice", "siliconflow", "volcengine", "mimo", "breeze"].includes(p.kind) && !p.instructions) return "";
+        return area("instructions", "平台默认风格", p.instructions,
+          "供本平台下的模型继承，按目标模型支持的指令填写。模型和音色留空时逐级继承，填写后独立覆盖。");
+      }
       function openModelDialog(id, view = "model") {
         state.objectAudio = "";
         const base = structuredClone(current()),
           model = base.models.find((m) => m.id === id);
         if (!model) throw Error("模型已移出列表，请刷新后选择。");
-        const p = {
-          ...base,
-          model: id,
-          voice: model.voice,
-          endpoint: model.endpoint || base.endpoint,
-          base_url:
-            model.base_url || (model.endpoint ? "" : base.base_url) || "",
-          ...(model.parameters || {}),
-        };
-        p.options = structuredClone(model.parameters?.options || base.options);
-        if (p.kind === "breeze") p.options.breeze_api_mode = base.options.breeze_api_mode;
-        p.tone = structuredClone(
-          model.parameters?.tone || base.tone || emptyTone(),
-        );
+        const p = modelProfile(base, model);
         state.modelEditor = {
           originalId: id,
           name: model.name || "",
@@ -2761,7 +2777,7 @@
                   ["custom", "自定义 HTTP 格式"],
                 ])
               : ""
-          }${supportsVoiceStyle(p) || p.instructions ? area("instructions", "模型风格描述", p.instructions, "音色中可分别设置风格。") : ""}${toneForm(p, "model")}</div><details class="model-options" ${p.kind === "compatible" && protocolFor(p).mode === "custom" ? "open" : ""}><summary>${p.kind === "compatible" && protocolFor(p).mode === "custom" ? "自定义请求与响应" : "平台专属参数"}</summary><div style="margin-top:16px">${modelOptionsForm(p)}</div></details>${state.audioUrl && state.objectAudio === "model" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="模型试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="cancel-model-dialog">关闭</button><button class="maibot-button key" data-action="preview-object">试听模型</button><button class="maibot-button maibot-button-primary key primary" data-action="save-model-direct">保存模型</button></div>`,
+          }${supportsVoiceStyle(p) || p.instructions ? modelStyleField(p) : ""}${toneForm(p, "model")}</div><details class="model-options" ${p.kind === "compatible" && protocolFor(p).mode === "custom" ? "open" : ""}><summary>${p.kind === "compatible" && protocolFor(p).mode === "custom" ? "自定义请求与响应" : "平台专属参数"}</summary><div style="margin-top:16px">${modelOptionsForm(p)}</div></details>${state.audioUrl && state.objectAudio === "model" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="模型试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="cancel-model-dialog">关闭</button><button class="maibot-button key" data-action="preview-object">试听模型</button><button class="maibot-button maibot-button-primary key primary" data-action="save-model-direct">保存模型</button></div>`,
         );
         state.formScope = "";
       }
@@ -2818,22 +2834,7 @@
             };
           previous.models.push(choice);
         }
-        const p = {
-          ...root,
-          models: previous.models,
-          voices: previous.voices,
-          model: id,
-          voice: choice.voice,
-          endpoint: choice.endpoint || root.endpoint,
-          base_url:
-            choice.base_url || (choice.endpoint ? "" : root.base_url) || "",
-          ...(choice.parameters || {}),
-        };
-        p.options = structuredClone(choice.parameters?.options || root.options);
-        if (p.kind === "breeze") p.options.breeze_api_mode = root.options.breeze_api_mode;
-        p.tone = structuredClone(
-          choice.parameters?.tone || root.tone || emptyTone(),
-        );
+        const p = modelProfile({ ...root, models: previous.models, voices: previous.voices }, choice);
         editor.profile = p;
         editor.originalId = id;
         editor.name = choice.name || "";
@@ -3436,6 +3437,8 @@
           p.voice = v.id;
           m.voice = v.id;
         }
+        // 草稿顶层仍表示平台默认值，模型覆盖保存在 m.parameters 中。
+        p.instructions = editor.root.instructions;
         return p;
       }
       function applyVoiceDialog() {
@@ -3839,14 +3842,7 @@
         const p = current(),
           id = state.voiceModels[p.id] || p.model,
           item = p.models?.find((m) => m.id === id);
-        const result = {
-          ...p,
-          model: item?.id || p.model,
-          voice: item?.voice ?? p.voice,
-          endpoint: item?.endpoint || p.endpoint,
-          base_url: item?.base_url || (item?.endpoint ? "" : p.base_url) || "",
-          options: { ...p.options },
-        };
+        const result = item ? modelProfile(p, item) : { ...p, options: { ...p.options } };
         const selected = p.voices.find(
           (v) =>
             v.id === result.voice && (!v.model || v.model === result.model),
@@ -3904,11 +3900,13 @@
         p.models = p.models.filter((m) => m.id !== id);
         p.voices = p.voices.filter((v) => p.models.length && v.model !== id);
         if (p.model === id) {
-          const first = p.models[0], breezeMode = p.options.breeze_api_mode;
+          const first = p.models[0], breezeMode = p.options.breeze_api_mode,
+            platformStyle = p.instructions;
           p.model = first?.id || "";
           p.voice = first?.voice || "";
           if (first?.parameters) Object.assign(p, structuredClone(first.parameters));
           else { p.instructions = ""; p.tone = emptyTone(); p.speed = 1; }
+          p.instructions = platformStyle;
           if (p.kind === "breeze") p.options.breeze_api_mode = breezeMode;
         }
         if (state.voiceModels[p.id] === id) state.voiceModels[p.id] = p.model;
@@ -4295,7 +4293,7 @@
 
       function connectionForm(p) {
         const cat = preset(p);
-        return `<div class="form-grid">${field("name", "配置名称", p.name, "例如：日常声音 / 高质量备用")}${apiKeyField(p)}${breezeConnection(p)}${field("base_url", "BaseURL", p.base_url || p.endpoint, "例如 " + (isBreezeCloud(p) ? cat.cloud_base_url : cat.base_url) + "；具体请求路径由平台适配器处理。", "url", true)}</div><div class="flex-wrap" style="margin-top:18px">${hasApi(p, "models") ? `<button class="maibot-button key small" data-action="load-models" ${state.busy ? "disabled" : ""}>获取模型列表并选择</button>` : '<button class="maibot-button key small" data-action="manage-models">选择预设或手动添加模型</button>'}<button class="maibot-button key small" data-action="import">从模型链接识别</button>${cat.docs ? '<button class="maibot-button key small flat" data-action="docs">平台文档 ↗</button>' : ""}</div>${modelLibrary(p)}`;
+        return `<div class="form-grid">${field("name", "配置名称", p.name, "例如：日常声音 / 高质量备用")}${apiKeyField(p)}${breezeConnection(p)}${field("base_url", "BaseURL", p.base_url || p.endpoint, "例如 " + (isBreezeCloud(p) ? cat.cloud_base_url : cat.base_url) + "；具体请求路径由平台适配器处理。", "url", true)}${platformStyleForm(p)}</div><div class="flex-wrap" style="margin-top:18px">${hasApi(p, "models") ? `<button class="maibot-button key small" data-action="load-models" ${state.busy ? "disabled" : ""}>获取模型列表并选择</button>` : '<button class="maibot-button key small" data-action="manage-models">选择预设或手动添加模型</button>'}<button class="maibot-button key small" data-action="import">从模型链接识别</button>${cat.docs ? '<button class="maibot-button key small flat" data-action="docs">平台文档 ↗</button>' : ""}</div>${modelLibrary(p)}`;
       }
 
       function voiceMode(p) {
@@ -5831,7 +5829,6 @@
             p.models.push(newModel(p, selected.model));
           state.voiceModels[p.id] = selected.model;
           if (p.kind === "qwen" && value === "clone") {
-            p.instructions = "";
             if (!p.base_url && !p.clone_url) p.clone_url = preset(p).clone_url;
           }
           dirty();
