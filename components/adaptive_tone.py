@@ -103,7 +103,8 @@ class ProbabilityToneAdapter:
                         model=self.features.probability_tone_task,
                         prompt=[{"role": "system", "content": prompt}, {"role": "user", "content": self.text}],
                         temperature=0.1,
-                        max_tokens=512 if profile.kind == "breeze" else 256,
+                        # 200 字自由描述及 Breeze 的原文事件锚点，在中日文分词下可超过 256/512 token。
+                        max_tokens=2048 if profile.kind == "breeze" else 1024 if limit > 0 else 256,
                     ),
                     timeout=timeout,
                 )

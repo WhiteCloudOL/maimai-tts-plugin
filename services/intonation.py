@@ -56,7 +56,8 @@ def apply_tone(profile: Profile, requested: Optional[str], *, direction: str = "
         f"你说话的情感是{emotion}。" if cap["protocol"] == "cosy_emotion"
         else settings.directions.get(emotion, TONE_DIRECTIONS[emotion])
     )
-    if emotion in settings.directions:
+    # 内置语调同样会占用合并后的指令额度；CosyVoice 原生情感继续使用其固定格式和独立校验。
+    if cap["protocol"] != "cosy_emotion":
         validate_direction(profile, direction)
     selected = profile.model_copy(
         deep=True, update={"instructions": "\n".join(value for value in (profile.instructions, direction) if value)}
