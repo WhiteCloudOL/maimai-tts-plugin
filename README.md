@@ -219,6 +219,8 @@ OpenAI 自定义音色可勾选 **使用 OpenAI 自定义音色对象（voice.id
 
 模型编辑框用占位文本显示平台默认风格，保存时保留空的覆盖值，不会把继承内容复制成模型固定值。试听、聊天合成和参数校验使用相同的最终风格。更改正在继承的默认风格后会使用不同的音频缓存；模型或音色已单独覆盖、最终请求未改变时继续复用已有音频。
 
+风格参数仅在当前模型、音色和资源支持时显示，均可选填；平台默认风格在已配置的模型或音色存在支持组合时显示。自定义 HTTP 请求体引用 `{{instructions}}` 后显示风格配置。
+
 | 模式 | 使用方式 |
 | :--- | :--- |
 | 关闭语调控制 | 使用平台原生表现和已有风格、语速参数 |
@@ -233,11 +235,11 @@ OpenAI 自定义音色可勾选 **使用 OpenAI 自定义音色对象（voice.id
 | OpenAI / OpenAI兼容服务 | `gpt-4o-mini-tts` 系列使用 `instructions`；自定义 HTTP 可通过模板传递风格 |
 | 阿里云_千问 | Qwen-Audio 3.0/3.1 TTS 使用 `instruction`；Qwen3 Instruct HTTP / Realtime 使用 `instructions`，可开启指令优化 |
 | 阿里云_CosyVoice | 3.5 Flash / Plus 和 v3 Flash 的复刻、设计音色使用自然语言指令；龙安洋、龙安欢及 v3 Flash 龙呼呼采用专属情感格式 |
-| MiniMax 官方 / 阿里云_MiniMax | 使用原生 `emotion`，平静对应 `calm`；按各模型能力提供情感选项，自由风格描述留空 |
+| MiniMax 官方 / 阿里云_MiniMax | 使用原生 `emotion`，平静对应 `calm`；按各模型能力提供情感选项，隐藏自由风格参数 |
 | 硅基流动 | `FunAudioLLM/CosyVoice2-0.5B` 使用官方指令前缀 |
 | MiMo | V2.5 的预设、克隆与声音设计模型使用独立风格指令 |
 | 火山引擎 | 公版 TTS 2.0 使用 `context_texts`；ICL 2.0 的 expressive 版本支持整段语音指令与 COT 标签 |
-| GPT-SoVITS | 使用参考录音、文字稿和原生语速等参数控制表达；API v2 不接收自由风格指令，填写时会返回明确提示 |
+| GPT-SoVITS | 使用参考录音、文字稿和原生语速等参数控制表达，隐藏自由风格参数 |
 
 工作台按当前模型、音色和资源显示支持的选项。其他模型、GPT-SoVITS 与自定义 HTTP 接口可继续配置各自原生语速、参考录音等参数。
 
