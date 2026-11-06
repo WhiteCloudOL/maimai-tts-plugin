@@ -10,6 +10,7 @@ import re
 
 from ..domain.models import Audio, Features, TTSError
 from ..domain.adaptive_tone import ToneAdapter
+from ..domain.prompts import DEFAULT_PROMPTS
 from ..services.intonation import clean_display_text
 from ..infrastructure.voice_codec import voice_segment
 from ..infrastructure.diagnostics import trace_scope
@@ -127,21 +128,12 @@ class MessagingMixin:
         "mmtts_speak",
         timeout_ms=600000,
         brief_description="把文本合成为语音并发送到当前聊天流",
-        detailed_description=(
-            "需要把完整回复文本转换为语音时调用；text 应传入原本要回复给用户的完整正文。参数说明：\n"
-            "- text：string，必填，要转换为语音的完整回复文本。\n"
-            "- voice：string，可选，用户明确指定临时音色时填写，日常回复沿用整体路由。\n"
-            "- speed：number，可选，0.25 到 4.0；是否允许由插件配置决定。\n"
-            "传入完整朗读正文，语调按当前路由配置及本次工具说明执行。\n"
-            "Breeze 动态控制以本次说明为准：可插入音频事件、自由语气和停顿引导，控制标记不显示在保留文字中。\n"
-            "成功结果表示语音已经发送到聊天流，本轮回复随即完成。\n"
-            "聊天流 ID 由 MaiBot 工具执行上下文自动注入，不需要也不允许模型自行填写。"
-        ),
+        detailed_description=DEFAULT_PROMPTS["tool"]["zh"],
         parameters=[
             ToolParameterInfo(
                 name="text",
                 param_type=ToolParamType.STRING,
-                description="完整朗读文本；Breeze 动态控制语法与可用事件以本次工具说明为准",
+                description="完整朗读文本；语调控制语法以当前平台的工具说明为准",
                 required=True,
             ),
             ToolParameterInfo(
@@ -153,7 +145,7 @@ class MessagingMixin:
             ToolParameterInfo(
                 name="speed",
                 param_type=ToolParamType.FLOAT,
-                description="可选的临时语速，范围 0.25 到 4.0",
+                description="可选的临时语速，取值与可用性以当前平台和插件设置为准",
                 required=False,
             ),
         ],

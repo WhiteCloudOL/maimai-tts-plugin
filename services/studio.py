@@ -14,6 +14,7 @@ from ..domain.catalog import resolve_model_url
 from ..domain.voice_catalog import get_catalog_payload
 from ..domain.intonation import TONE_LABELS, TONE_RULES
 from ..domain.models import Audio, RouteTarget, StudioConfig, TTSError, safe_validation_error, validate_url
+from ..domain.prompts import prompt_catalog
 from .tts import TTSService
 from ..infrastructure.storage import ConfigStore
 from ..infrastructure.diagnostics import trace_scope
@@ -49,6 +50,7 @@ class Studio:
             "config": self.store.snapshot(),
             **await asyncio.to_thread(get_catalog_payload),
             "intonation": {"labels": TONE_LABELS, "rules": TONE_RULES},
+            "prompts": prompt_catalog(),
             "history": list(self.service.history),
             "cache": self.service.cache.stats(),
             "reference_audio": await self.service.http.reference_files.snapshot(),

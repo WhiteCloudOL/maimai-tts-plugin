@@ -21,6 +21,7 @@ from .compatibility import CompatibilityOptions, template_variables
 from .minimax import FORMATS as MINIMAX_FORMATS, OLD_MODEL_LANGUAGES, emotions as minimax_emotions
 from .breeze import LANGUAGES as BREEZE_LANGUAGES
 from .volcengine import CLONE_LANGUAGES, supports_instructions
+from .prompts import PromptKind, PromptLanguage, validate_prompt
 
 ProviderKind = Literal[
     "openai",
@@ -656,11 +657,16 @@ class Features(Model):
     allow_voice_override: bool = False
     allow_speed_override: bool = True
     tone_prompt_language: Literal["zh", "en", "ja"] = "zh"
+    prompt_overrides: Dict[ProviderKind, Dict[PromptKind, Dict[PromptLanguage, str]]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_lengths(self) -> "Features":
         if self.probability_min_text_length > self.probability_max_text_length:
             raise ValueError("概率 TTS 最短文本不能大于最长文本")
+        for provider, prompts in self.prompt_overrides.items():
+            for kind, translations in prompts.items():
+                for value in translations.values():
+                    validate_prompt(provider, kind, value)
         return self
 
 

@@ -9,12 +9,15 @@ import json
 from ..domain.adaptive_tone import (
     ToneDecision,
     adaptive_prompt,
+    breeze_event_options,
     direction_limit,
     parse_adaptive_tone,
     validate_direction,
 )
 from ..domain.intonation import tone_capability
+from ..domain.breeze_control import parse_breeze_text
 from ..domain.models import Features, Profile, TTSError
+from ..domain.prompts import prompt_template
 from ..infrastructure.diagnostics import Diagnostics
 
 
@@ -36,8 +39,23 @@ class ProbabilityToneAdapter:
         # 只在同一轮内复用兼容决定；不同允许列表、自由指令能力、剩余长度和计数规则分别分类。
         # 不持久缓存 LLM 分类，避免模型/提示/语调配置变更后沿用旧决定。
         xml_instructions = profile.kind == "volcengine" and profile.options.volc_instruction_mode == "cot"
+        events = (
+            breeze_event_options(profile)
+            if profile.kind == "breeze" and not parse_breeze_text(self.text).marked
+            else {}
+        )
         key = json.dumps(
-            [tones, profile.kind == "breeze", direction_limit(profile), profile.kind == "cosyvoice", xml_instructions]
+            [
+                tones,
+                profile.kind,
+                prompt_template(
+                    self.features.prompt_overrides, profile.kind, "adaptive", self.features.tone_prompt_language
+                ),
+                direction_limit(profile),
+                profile.kind == "cosyvoice",
+                xml_instructions,
+                events,
+            ]
         )
         if key in self.decisions:
             return self.decisions[key]
@@ -48,6 +66,12 @@ class ProbabilityToneAdapter:
     async def _classify(self, profile: Profile, tones: List[str]) -> Optional[ToneDecision]:
         timeout = self.features.probability_tone_timeout
         limit = direction_limit(profile)
+        # 已有局部表演标记优先保留；未标记正文才由自适应补充原文锚点事件。
+        events = (
+            breeze_event_options(profile)
+            if profile.kind == "breeze" and not parse_breeze_text(self.text).marked
+            else {}
+        )
         feedback = ""
         attempts = self.features.probability_tone_retries + 1
         for attempt in range(1, attempts + 1):
@@ -59,6 +83,13 @@ class ProbabilityToneAdapter:
                 max_direction_length=limit,
                 feedback=feedback,
                 weighted=profile.kind == "cosyvoice",
+                event_options=events,
+                template=prompt_template(
+                    self.features.prompt_overrides,
+                    profile.kind,
+                    "adaptive",
+                    self.features.tone_prompt_language,
+                ),
             )
             try:
                 # 同时设置 RPC 与外层预算，避免 SDK 默认 RPC 超时提前截断用户配置。
@@ -69,7 +100,7 @@ class ProbabilityToneAdapter:
                         model=self.features.probability_tone_task,
                         prompt=[{"role": "system", "content": prompt}, {"role": "user", "content": self.text}],
                         temperature=0.1,
-                        max_tokens=256,
+                        max_tokens=512 if profile.kind == "breeze" else 256,
                     ),
                     timeout=timeout,
                 )
@@ -80,7 +111,12 @@ class ProbabilityToneAdapter:
                     raise TTSError("语调 LLM 未返回文本")
                 try:
                     decision = parse_adaptive_tone(
-                        response, tones, breeze=profile.kind == "breeze", free_direction=limit > 0
+                        response,
+                        tones,
+                        breeze=profile.kind == "breeze",
+                        free_direction=limit > 0,
+                        text=self.text,
+                        event_options=events,
                     )
                     if decision.direction:
                         validate_direction(profile, decision.direction)

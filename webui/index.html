@@ -1073,6 +1073,17 @@
       .tone-route-list li + li {
         margin-top: 8px;
       }
+      .prompt-settings {
+        margin-top: 22px;
+      }
+      .prompt-settings > summary {
+        padding: 16px 20px;
+        cursor: pointer;
+      }
+      .prompt-settings textarea {
+        min-height: 220px;
+        overflow-wrap: anywhere;
+      }
       #dialog > .toast {
         position: absolute;
         top: auto;
@@ -1878,6 +1889,10 @@
         catalog: {},
         voiceSets: {},
         intonation: { labels: {}, rules: [] },
+        prompts: null,
+        promptPlatform: "breeze",
+        promptKind: "dynamic",
+        promptLanguage: "zh",
         referenceAudio: { files: [], directory: "", base_dir: "" },
         history: [],
         selected: "",
@@ -4781,6 +4796,34 @@
           if (form) form.innerHTML = probabilityToneOptions();
         }
       }
+      function promptEditorView() {
+        const catalog = state.prompts;
+        if (!catalog) return '<p class="muted">请重新加载插件，读取提示词默认内容。</p>';
+        const platform = state.promptPlatform, language = state.promptLanguage,
+          kinds = catalog.defaults[platform];
+        if (!kinds[state.promptKind]) state.promptKind = "tool";
+        const kind = state.promptKind,
+          saved = state.config.feature.prompt_overrides?.[platform]?.[kind]?.[language],
+          custom = Boolean(saved?.trim()), value = custom ? saved : kinds[kind][language],
+          variables = catalog.variables[platform][kind].map((name) => `{{${name}}}`).join("、");
+        return `<div class="form-grid"><div class="field wide"><label for="prompt-platform">平台</label><select id="prompt-platform" class="maibot-input input">${Object.entries(catalog.platforms).map(([key, label]) => `<option value="${h(key)}" ${key === platform ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div><div class="field"><label for="prompt-kind">提示词类型</label><select id="prompt-kind" class="maibot-input input">${Object.keys(kinds).map((key) => [key, catalog.labels[key]]).map(([key, label]) => `<option value="${h(key)}" ${key === kind ? "selected" : ""}>${h(label)}</option>`).join("")}</select></div><div class="field"><label for="prompt-language">编辑语言</label><select id="prompt-language" class="maibot-input input">${[["zh", "中文"], ["en", "English"], ["ja", "日本語"]].map(([key, label]) => `<option value="${key}" ${key === language ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="field wide"><label for="prompt-template">提示词内容</label><textarea id="prompt-template" data-prompt-editor class="maibot-input input" rows="9" maxlength="4000" spellcheck="false">${h(value)}</textarea><small>${variables ? "可用变量：" + h(variables) : "直接填写工具说明。"}</small><small>输出格式、允许的标签与平台限制由插件继续附加和校验。同平台实例共用此提示词，实际调用语言沿用上方“语音提示语言”。</small></div></div><div class="flex-wrap" style="margin-top:14px"><button class="maibot-button key small" data-action="reset-prompt">恢复此项默认</button><small id="prompt-editor-status" role="status">${custom ? "已自定义" : "使用内置默认"} · 保存全部设置后生效</small></div>`;
+      }
+      function updatePromptOverride(value) {
+        const feature = state.config.feature, platform = state.promptPlatform, kind = state.promptKind, language = state.promptLanguage;
+        feature.prompt_overrides ||= {};
+        const custom = value.trim() && value !== state.prompts.defaults[platform][kind][language];
+        if (custom) {
+          feature.prompt_overrides[platform] ||= {};
+          feature.prompt_overrides[platform][kind] ||= {};
+          feature.prompt_overrides[platform][kind][language] = value;
+        } else if (feature.prompt_overrides[platform]?.[kind]) {
+          delete feature.prompt_overrides[platform][kind][language];
+          if (!Object.keys(feature.prompt_overrides[platform][kind]).length) delete feature.prompt_overrides[platform][kind];
+          if (!Object.keys(feature.prompt_overrides[platform]).length) delete feature.prompt_overrides[platform];
+        }
+        dirty();
+        $("#prompt-editor-status").textContent = `${custom ? "已自定义" : "使用内置默认"} · 保存全部设置后生效`;
+      }
       function featuresView() {
         const f = state.config.feature;
         return `<div class="features-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>如何说话</h2><p>为聊天命令与麦麦自主调用分别设置。</p></div></div><div class="panel-body"><div class="form-grid" style="margin-bottom:22px">${selectField(
@@ -4794,15 +4837,15 @@
           "官方机器人、SnowLuma 与 NapCat 推荐 SILK；发送前自动转码，网页试听保留原始音频。",
         )}</div>${toggleField("feature.command_enabled", "启用 /mmtts 语音命令", f.command_enabled, "通过 /mmtts、/tts 或 /语音 将正文合成为语音，可在命令前提及麦麦。")}${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text, "先发送回复文字，再单独发送语音。")}${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}<hr class="split">${selectField(
           "feature.tone_prompt_language",
-          "动态语调提示语言",
+          "语音提示语言",
           f.tone_prompt_language || "zh",
           [
             ["zh", "中文"],
             ["en", "English"],
             ["ja", "日本語"],
           ],
-          "模型或音色选择动态模式时生效。固定语调直接使用配置，正文保持原样。",
-        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效。指令型模型可使用自由语气，情感枚举型模型按允许列表选择；开启时可同步设置路由音色。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div>`;
+          "工具说明与语调提示使用此语言；动态语调在模型或音色选择动态模式时生效。",
+        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效。指令型模型可使用自由语气，情感枚举型模型按允许列表选择；开启时可同步设置路由音色。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div><details class="maibot-card panel prompt-settings"><summary>提示词编辑</summary><div id="prompt-editor" class="panel-body">${promptEditorView()}</div></details>`;
       }
       function previewModelOptions() {
         const p = state.config.profiles.find(
@@ -4899,6 +4942,7 @@
           state.catalog = result.catalog;
           state.voiceSets = result.voice_sets;
           state.intonation = result.intonation;
+          state.prompts = result.prompts;
           state.referenceAudio = result.reference_audio || state.referenceAudio;
           state.history = result.history;
           state.cache = result.cache;
@@ -5172,6 +5216,11 @@
       }
       const handlers = {
         "refresh-llm-tasks": () => loadProbabilityToneTasks(true),
+        "reset-prompt": () => {
+          const value = state.prompts.defaults[state.promptPlatform][state.promptKind][state.promptLanguage];
+          $("#prompt-template").value = value;
+          updatePromptOverride(value);
+        },
         "add-timbre": () => {
           const p = state.modelEditor.profile;
           p.options.timbre_weights ||= [];
@@ -6020,6 +6069,10 @@
       }
       document.addEventListener("input", (e) => {
         if (state.busy || state.saving) return;
+        if (e.target.matches("[data-prompt-editor]")) {
+          updatePromptOverride(e.target.value);
+          return;
+        }
         if (e.target.dataset.timbreIndex !== undefined && state.modelEditor) {
           const el = e.target;
           state.modelEditor.profile.options.timbre_weights[Number(el.dataset.timbreIndex)][el.dataset.timbreField] =
@@ -6054,6 +6107,12 @@
       document.addEventListener("change", (e) => {
         const el = e.target;
         if (state.busy || state.saving) return;
+        if (["prompt-platform", "prompt-kind", "prompt-language"].includes(el.id)) {
+          state[{"prompt-platform": "promptPlatform", "prompt-kind": "promptKind", "prompt-language": "promptLanguage"}[el.id]] = el.value;
+          $("#prompt-editor").innerHTML = promptEditorView();
+          $("#" + el.id).focus({preventScroll: true});
+          return;
+        }
         if (el.id === "provider-picker") {
           state.selected = el.value;
           render();
@@ -6239,6 +6298,7 @@
             state.catalog = fresh.catalog;
             state.voiceSets = fresh.voice_sets;
             state.intonation = fresh.intonation;
+            state.prompts = fresh.prompts;
             if (!current()) state.selected = state.config.profiles[0]?.id || "";
             render();
             notify("工作台已同步最新整体路由与配置。");

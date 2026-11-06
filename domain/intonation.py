@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 
 import re
 
+from .prompts import DEFAULT_PROMPTS, render_prompt
+
 
 TONE_LABELS = {
     "neutral": "平静",
@@ -252,31 +254,10 @@ def tone_prompt(
     default: str = "neutral",
     direction_limit: int = 0,
     weighted: bool = False,
+    template: Optional[str] = None,
 ) -> str:
     choices = ", ".join(f"{key}({TONE_LABELS[key]})" for key in allowed)
-    prompts = {
-        "zh": (
-            "【麦麦TTS动态语调】\n允许的语调 ID：{choices}。根据上下文选择一种语调。"
-            "{placement}格式示例：[mmtts:{example}]今天也很高兴见到你。"
-            "整条回复只使用一个头部标签，ID 精确匹配允许列表；正文仅保留朗读文字，语调控制只使用指定头部标签。"
-            "拿不准时选择 {default}；倾听、安慰和严肃讨论优先使用平静或温柔的语气。"
-        ),
-        "en": (
-            "[MaiMai TTS dynamic delivery]\nAllowed tone IDs: {choices}. Choose one that fits the context. "
-            "{placement}Example: [mmtts:{example}]It is lovely to see you today. "
-            "Use exactly one leading tag per reply and an exact allowed ID. "
-            "Keep only spoken words in the body and use the specified leading tag for delivery control. "
-            "Choose {default} when uncertain; prefer calm or gentle delivery "
-            "for listening, comfort, and serious discussion."
-        ),
-        "ja": (
-            "【麦麦TTSの動的な話し方】\n利用できる語調 ID：{choices}。文脈に合う語調を一つ選んでください。"
-            "{placement}形式の例：[mmtts:{example}]今日も会えてうれしいです。"
-            "返信の先頭にタグを一つだけ付け、許可された ID を正確に使ってください。"
-            "本文は朗読する言葉だけとし、語調は指定の先頭タグで設定してください。"
-            "迷ったら {default} を選び、傾聴、慰め、真剣な話題では穏やかで優しい話し方を優先してください。"
-        ),
-    }
+    prompts = DEFAULT_PROMPTS["dynamic"]
     placements = {
         "zh": "在回复正文开头添加标签；调用 mmtts_speak 时放在 text 参数开头。"
         if automatic
@@ -289,7 +270,16 @@ def tone_prompt(
         else "タグは mmtts_speak の text 引数の先頭にだけ付け、通常のテキスト返信は本文をそのまま返してください。",
     }
     example = "happy" if "happy" in allowed else default if default in allowed else allowed[0]
-    prompt = prompts[language].format(choices=choices, placement=placements[language], default=default, example=example)
+    selected = template if template is not None else prompts[language]
+    prompt = render_prompt(
+        selected,
+        {"allowed_tones": choices, "placement": placements[language],
+         "default_tone": default, "example": example, "direction_limit": str(direction_limit)},
+    )
+    if not re.search(r"\{\{\s*placement\s*\}\}", selected):
+        prompt = placements[language] + "\n" + prompt
+    if not re.search(r"\{\{\s*allowed_tones\s*\}\}", selected):
+        prompt += "\n[mmtts:ID]: " + ", ".join(allowed)
     controls = {
         "zh": "也可改用 [mmtts:style=说话方式] 指定整段自由语气，描述最多 {limit} 字符；与 ID 标签二选一，正文保持纯文本。",
         "en": "Alternatively, use [mmtts:style=delivery description] for whole-utterance delivery, at most {limit} characters. Choose either this or the tone ID tag, and keep the body plain text.",
@@ -305,6 +295,12 @@ def tone_prompt(
         "en": " Han characters count as 2; others as 1.",
         "ja": "漢字は2文字、他は1文字として数える。",
     }
+    protocol = {
+        "zh": "整条回复只用一个开头标签：[mmtts:允许的ID]正文；ID 必须精确匹配以上列表。",
+        "en": "Use one leading tag per reply: [mmtts:allowed_ID]text, with an exact listed ID.",
+        "ja": "返信の先頭タグは一つ：[mmtts:許可ID]本文。IDは上記の一覧と完全一致させる。",
+    }
+    prompt += "\n" + protocol[language] + "\n"
     return (
         prompt + controls[language].format(limit=direction_limit) + (counts[language] if weighted else "")
         if direction_limit

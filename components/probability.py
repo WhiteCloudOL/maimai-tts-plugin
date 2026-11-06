@@ -143,7 +143,8 @@ class ProbabilityMixin:
         tag_error = parsed.error
         breeze = parse_breeze_text(parsed.text)
         breeze_controls = False
-        if targeted and breeze.marked:
+        # 控制标记属于语音表演，不随纯文字回复外发；未挂概率扩展的回复也须清理。
+        if breeze.marked:
             profile = self.primary_tone_profile()
             breeze_controls = profile is not None and profile.kind == "breeze"
             if breeze_controls:

@@ -9,6 +9,7 @@ from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tag
 from ..domain.adaptive_tone import direction_limit
 from ..domain.intonation import tone_capability, tone_prompt
 from ..domain.models import Profile, TTSError
+from ..domain.prompts import DEFAULT_PROMPTS, prompt_template
 
 
 class IntonationMixin:
@@ -71,7 +72,7 @@ class IntonationMixin:
             profile = profile.for_model(target.model_id)
         return profile.with_synthesis_overrides(voice=target.voice).with_selected_voice()
 
-    def dynamic_tone_prompt(self, *, automatic: bool) -> str:
+    def dynamic_tone_prompt(self, *, automatic: bool, adaptive: bool = False) -> str:
         profile = self.primary_tone_profile()
         if profile is None or profile.tone.mode != "dynamic":
             return ""
@@ -90,7 +91,11 @@ class IntonationMixin:
                 tags=event_tags(
                     profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
                 ),
-            ) + "\n[mmtts:ID]: " + ", ".join(profile.tone.allowed or cap["tones"])
+                adaptive=adaptive,
+                template=prompt_template(
+                    self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
+                ),
+            ) + ("" if adaptive else "\n[mmtts:ID]: " + ", ".join(profile.tone.allowed or cap["tones"]))
         return tone_prompt(
             profile.tone.allowed or cap["tones"],
             self.features.tone_prompt_language,
@@ -98,6 +103,9 @@ class IntonationMixin:
             default=profile.tone.emotion,
             direction_limit=direction_limit(profile),
             weighted=profile.kind == "cosyvoice",
+            template=prompt_template(
+                self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
+            ),
         )
 
     @HookHandler(
@@ -114,6 +122,11 @@ class IntonationMixin:
         if not self.config.plugin.enabled or not self.features.tool_enabled or not tool_definitions:
             return {"action": "continue"}
         prompt = self.dynamic_tone_prompt(automatic=False)
+        profile = self.primary_tone_profile()
+        tool_prompt = (
+            prompt_template(self.features.prompt_overrides, profile.kind, "tool", self.features.tone_prompt_language)
+            if profile is not None else DEFAULT_PROMPTS["tool"][self.features.tone_prompt_language]
+        )
         # 固定或关闭模式的规划请求只保留朗读工具；动态模式才暴露语调查询与标签协议。
         definitions = [
             deepcopy(item)
@@ -121,13 +134,11 @@ class IntonationMixin:
             if prompt
             or not (isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_tone_options")
         ]
-        if not prompt and len(definitions) == len(tool_definitions):
-            return {"action": "continue"}
         for item in definitions:
             function = item.get("function")
-            if prompt and isinstance(function, dict) and function.get("name") == "mmtts_speak":
+            if isinstance(function, dict) and function.get("name") == "mmtts_speak":
                 function["description"] = "\n\n".join(
-                    value for value in (function.get("description", ""), prompt) if value
+                    value for value in (tool_prompt, prompt) if value
                 )
         return {"action": "continue", "modified_kwargs": dict(kwargs, tool_definitions=definitions)}
 
@@ -145,12 +156,15 @@ class IntonationMixin:
         if not self.config.plugin.enabled or not (self.features.probability_enabled or self.features.tool_enabled):
             return {"action": "continue"}
         automatic = self.features.probability_enabled and self._is_probability_reply(kwargs.get("reply_tool_args"))
-        if automatic and self.features.probability_tone_enabled:
-            # 自适应在抽中语音后独立分类，回复模型无需再生成一套语调标签。
-            return {"action": "continue"}
+        adaptive = automatic and self.features.probability_tone_enabled
+        if adaptive:
+            # 其他平台由后置分类选择语调；Breeze 继续提示局部表演，避免丢失事件与停顿能力。
+            profile = self.primary_tone_profile()
+            if profile is None or profile.kind != "breeze":
+                return {"action": "continue"}
         if not automatic and not self.features.tool_enabled:
             return {"action": "continue"}
-        prompt = self.dynamic_tone_prompt(automatic=automatic)
+        prompt = self.dynamic_tone_prompt(automatic=automatic, adaptive=adaptive)
         if not prompt:
             return {"action": "continue"}
         modified = dict(kwargs)

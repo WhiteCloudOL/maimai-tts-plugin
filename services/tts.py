@@ -16,7 +16,7 @@ import json
 
 from ..settings.config import RuntimeSection
 from ..domain.breeze_control import boundary_pauses, parse_breeze_text
-from ..domain.adaptive_tone import ToneAdapter
+from ..domain.adaptive_tone import ToneAdapter, apply_breeze_events
 from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, safe_validation_error
 from ..providers import PROVIDERS
 from ..providers.base import Provider
@@ -303,13 +303,16 @@ class TTSService:
                     selected = selected.with_synthesis_overrides(speed=speed)
                 requested = parsed.tone
                 direction = parsed.direction
+                speech_text = text
                 if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or direction or free_directions):
                     decision = await tone_adapter(selected)
                     if decision is not None:
                         requested = decision.tone
                         direction = decision.direction
+                        if selected.kind == "breeze":
+                            speech_text = apply_breeze_events(text, decision.events)
                 requests = (
-                    breeze_requests(selected, text, requested, direction=direction)
+                    breeze_requests(selected, speech_text, requested, direction=direction)
                     if selected.kind == "breeze" else None
                 )
                 selected, emotion = apply_tone(selected, requested, direction=direction)
@@ -325,7 +328,7 @@ class TTSService:
                     )
                 client = self.provider(selected)
                 # 首选 Breeze 的备选平台使用干净台词，避免把已识别的控制标记读给用户。
-                speech_text = breeze_input.display_text if breeze_input is not None and selected.kind != "breeze" else text
+                speech_text = breeze_input.display_text if breeze_input is not None and selected.kind != "breeze" else speech_text
                 request_audio = partial(
                     self.execute,
                     partial(self._synthesize_breeze, client, requests) if requests is not None

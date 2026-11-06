@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import json
 import re
+
+from .prompts import DEFAULT_PROMPTS, render_prompt
 
 
 # 官方标签表：https://docs.breezeblue.ai/guides/audio-tags
@@ -106,37 +108,36 @@ def boundary_pauses(texts: List[str]) -> List[int]:
     return pauses
 
 
-def control_prompt(language: str, *, automatic: bool, tags: Dict[str, List[str]]) -> str:
+def control_prompt(
+    language: str,
+    *,
+    automatic: bool,
+    tags: Dict[str, List[str]],
+    adaptive: bool = False,
+    template: Optional[str] = None,
+) -> str:
     """只注入常用事件和停顿规则；完整标签表由语调查询工具按需返回。"""
     table = "\n".join(f"{code}: {' '.join(values[index] for index in COMMON_EVENT_INDICES)}" for code, values in tags.items())
-    descriptions = {
-        "zh": (
-            "Breeze：用 [语气:描述]（也支持 [用温柔的语气]）控制后文，至下一标记前；每段 1–200 字，一条最多 8 个。"
-            "描述与台词同语言；可省略标记沿用默认语调，或在开头使用一个允许的 [mmtts:ID]。"
-            "用标点组织停连，段间停顿由插件补齐；段内留白按需插入表内停顿标签，一处一个，不堆叠或自造时长写法。"
-            "事件留在合成正文；自由语气提取成指令，聊天文字隐藏标记。台词必须完整，普通括号保留。"
-            "下面是常用事件；其他事件先查询 mmtts_tone_options。"
-        ),
-        "en": (
-            "Breeze: [style:direction] (also [语气:描述] or [用温柔的语气]) applies until the next marker; "
-            "1–200 characters each, eight markers per reply. Match the dialogue language. Omit markers for the "
-            "default tone, or use one allowed leading [mmtts:ID]. The plugin supplies gaps between sections. "
-            "Use punctuation and one listed pause where needed within a section; do not stack pauses or invent duration syntax. "
-            "Events stay in speech input; directions become separate instructions. Chat text hides controls. "
-            "Include complete dialogue; preserve ordinary brackets. Common events follow; query mmtts_tone_options for others."
-        ),
-        "ja": (
-            "Breeze：[話し方:説明]（[语气:描述]、[用温柔的语气] も可）は次の指定まで適用。"
-            "説明は台詞と同じ言語で各 1–200 文字、返信ごとに最大 8 個。省略時は既定の語調、"
-            "または許可された [mmtts:ID] を先頭に一つ使えます。区間の間はプラグインが間合いを確保します。"
-            "区間内では句読点と必要に応じて表の間合いタグを一つ使い、連続挿入や独自の秒数指定は禁止です。"
-            "イベントは合成本文に残し、話し方は独立した指示に変換、チャットではタグを隠します。"
-            "台詞を省略せず、通常の括弧は保持。下表以外は mmtts_tone_options で確認してください。"
-        ),
-    }
+    descriptions = DEFAULT_PROMPTS["breeze"]
     placement = {
         "zh": "仅用于本次语音回复；" if automatic else "仅用于 mmtts_speak.text，普通文字不加标记；",
         "en": "For this speech reply only. " if automatic else "Only in mmtts_speak.text; keep ordinary replies plain. ",
         "ja": "今回の音声返信だけに使用。" if automatic else "mmtts_speak.text だけに使用し、通常の返信には付けないでください。",
     }
-    return placement[language] + descriptions[language] + "\n" + table
+    adaptive_rules = {
+        "zh": "整段基调由后置自适应补充；仍按需生成局部语气、事件与停顿，无需生成 [mmtts:ID] 头标签。",
+        "en": "Post-generation adaptation supplies the overall delivery; still add fitting local directions, events and pauses, without a leading [mmtts:ID]. ",
+        "ja": "全体の基調は生成後の自動調整が補う。局所的な話し方、イベント、間合いは引き続き指定し、先頭の [mmtts:ID] は不要。",
+    }
+    selected = template if template is not None else descriptions[language]
+    prompt = render_prompt(selected, {"placement": placement[language], "event_tags": table})
+    constraints = {
+        "zh": "控制格式：[语气:描述]作用于后文，到下一标记前；描述同台词语言、单行1–200字，每条最多8个。事件从表内选，整条使用同一种语言标签；一处一个停顿，不自造时长。完整保留台词。",
+        "en": "Controls: [style:direction] applies until the next marker; use the dialogue language, 1–200 single-line characters, at most 8 markers. Use one listed tag language per reply and one pause per position; invent no durations. Preserve all dialogue.",
+        "ja": "構文：[話し方:説明]は次の指定まで適用。同じ言語の一行1–200文字、最大8個。イベントは一覧の同じ言語で選び、一か所一つの間合いにし、秒数を自作しない。台詞は省略しない。",
+    }
+    if not re.search(r"\{\{\s*placement\s*\}\}", selected):
+        prompt = placement[language] + prompt
+    if not re.search(r"\{\{\s*event_tags\s*\}\}", selected):
+        prompt += "\n" + table
+    return prompt + "\n" + constraints[language] + ("\n" + adaptive_rules[language] if adaptive else "")
