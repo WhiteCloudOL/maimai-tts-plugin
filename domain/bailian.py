@@ -1,5 +1,7 @@
 """百炼各代语音模型的协议与能力边界。"""
 
+from unicodedata import name as unicode_name
+
 QWEN_AUDIO_MODELS = {
     "qwen-audio-3.0-tts-flash",
     "qwen-audio-3.0-tts-plus",
@@ -65,3 +67,10 @@ MINIMAX_LANGUAGES = [
     "Tamil",
     "Afrikaans",
 ]
+
+
+def instruction_length(text: str) -> int:
+    """CosyVoice 按汉字计 2 字符，标点、假名、谚文等其他字符计 1。"""
+    return len(text) + sum(
+        unicode_name(char, "").startswith(("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-")) for char in text
+    )

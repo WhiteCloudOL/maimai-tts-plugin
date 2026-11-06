@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 import asyncio
 import re
 
-from ..domain.bailian import DESIGN_MODELS, QWEN_AUDIO_MODELS, VOICE_LANGUAGES, VOICE_STATES
+from ..domain.bailian import DESIGN_MODELS, QWEN_AUDIO_MODELS, VOICE_LANGUAGES, VOICE_STATES, instruction_length
 from ..domain.models import Audio, Profile, TTSError, validate_url
 from ..domain.intonation import tone_capability
 from .base import CloneResult, Provider, decode_audio, normalize_audio
@@ -29,7 +29,7 @@ class BailianVoiceProvider(Provider):
             return ""
         if tone_capability(profile.kind, profile.model, profile.voice, "") is None:
             raise TTSError("此模型与音色使用原生语速等参数，请选择支持指令的组合后设置风格")
-        if profile.kind == "cosyvoice" and sum(2 if ord(c) > 127 else 1 for c in profile.instructions) > 100:
+        if profile.kind == "cosyvoice" and instruction_length(profile.instructions) > 100:
             raise TTSError("CosyVoice 风格与语调合计超过 100 字符上限（中文按 2 字符计算）")
         return profile.instructions
 

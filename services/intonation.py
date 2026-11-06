@@ -2,6 +2,7 @@
 
 from typing import List, Optional, Tuple
 
+from ..domain.bailian import instruction_length
 from ..domain.breeze_control import clean_breeze_text, parse_breeze_text
 from ..domain.intonation import TONE_DIRECTIONS, parse_tone_tag, tone_capability, validate_tone_settings
 from ..domain.models import Profile, TTSError
@@ -43,7 +44,7 @@ def apply_tone(profile: Profile, requested: Optional[str]) -> Tuple[Profile, str
     selected = profile.model_copy(
         deep=True, update={"instructions": "\n".join(value for value in (profile.instructions, direction) if value)}
     )
-    if selected.kind == "cosyvoice" and sum(2 if ord(c) > 127 else 1 for c in selected.instructions) > 100:
+    if selected.kind == "cosyvoice" and instruction_length(selected.instructions) > 100:
         raise TTSError("CosyVoice 风格与语调合计超过 100 字符上限（中文按 2 字符计算）")
     return selected, emotion
 
