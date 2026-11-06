@@ -27,7 +27,9 @@ from ..infrastructure.voice_codec import SILK_HEADER, encode_silk
 from ..infrastructure.cache import AsyncResultCache
 from ..infrastructure.breeze_audio import join_breeze_audio
 from ..domain.intonation import parse_tone_tag
-from .intonation import apply_tone, breeze_requests, clean_display_text, validate_requested_tone
+from .intonation import (
+    apply_tone, breeze_requests, clean_display_text, validate_requested_direction, validate_requested_tone,
+)
 from .cache_keys import CacheKeys
 
 
@@ -245,7 +247,7 @@ class TTSService:
         if breeze_input is not None and breeze_input.error:
             raise TTSError(breeze_input.error)
         free_directions = breeze_input is not None and any(part.direction for part in breeze_input.parts)
-        if parsed.tone is not None or free_directions:
+        if parsed.tone is not None or parsed.direction or free_directions:
             first = route[0]
             initial = profiles[first.provider_id]
             if first.model_id:
@@ -255,6 +257,8 @@ class TTSService:
                     voice=initial.resolve_voice_id(voice) if voice is not None else first.voice
                 ).with_selected_voice()
                 validate_requested_tone(initial, parsed.tone)
+                if parsed.direction:
+                    validate_requested_direction(initial, parsed.direction)
                 if free_directions and initial.tone.mode != "dynamic":
                     raise TTSError("Breeze 自由语气需要在当前模型或音色中启用动态语调")
             except ValidationError as exc:
@@ -298,15 +302,17 @@ class TTSService:
                     # 临时语速是本次调用的最终覆盖，优先于模型及音色保存的语速。
                     selected = selected.with_synthesis_overrides(speed=speed)
                 requested = parsed.tone
+                direction = parsed.direction
                 route_text = text
-                if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or free_directions):
+                if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or direction or free_directions):
                     decision = await tone_adapter(selected)
                     if decision is not None:
                         requested = decision.tone
-                        if selected.kind == "breeze" and decision.direction:
-                            route_text = f"[语气:{decision.direction}]" + text
+                        direction = decision.direction
+                if selected.kind == "breeze" and direction:
+                    route_text = f"[语气:{direction}]" + text
                 requests = breeze_requests(selected, route_text, requested) if selected.kind == "breeze" else None
-                selected, emotion = apply_tone(selected, requested)
+                selected, emotion = apply_tone(selected, requested, direction=direction)
                 if requests is not None and free_directions:
                     self.log.info("应用 Breeze 分段语气", provider=selected.name, model=selected.model, sections=len(requests))
                 elif emotion:

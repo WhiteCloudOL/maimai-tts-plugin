@@ -1063,6 +1063,16 @@
         overflow-y: auto;
         overscroll-behavior: contain;
       }
+      .tone-route-list {
+        padding-left: 22px;
+        margin: 14px 0;
+        font-size: 13px;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+      }
+      .tone-route-list li + li {
+        margin-top: 8px;
+      }
       #dialog > .toast {
         position: absolute;
         top: auto;
@@ -2696,7 +2706,7 @@
           labels = state.intonation.labels;
         if (!modes.some(([key]) => key === mode))
           modes.push([mode, "当前设置 · 需调整模型或音色"]);
-        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? `<fieldset class="field wide"><legend>允许麦麦选择的语调</legend><div class="flex-wrap">${cap.tones.map((key) => `<label class="inline-check"><input type="checkbox" data-tone-allowed="${key}" data-tone-scope="${scope}" ${!tone.allowed.length || tone.allowed.includes(key) ? "checked" : ""}>${h(labels[key])}</label>`).join("")}</div><small>${h(p.kind === "breeze" ? "Breeze 可插入原生音频事件，并用 [语气:描述] 或 [用温柔的语气] 指定后续区段的表达；控制标记从聊天保留文字中隐藏。允许列表约束可选的 [mmtts:ID] 头部标签。" : "仅接受头部标签，例如 [mmtts:happy]你好。格式、语调 ID 与允许列表会分别校验；错误标签的自动回复采用纯文本并记录警告。")} </small></fieldset>` : ""}` : ""}</div></section>`;
+        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? `<fieldset class="field wide"><legend>允许麦麦选择的语调</legend><div class="flex-wrap">${cap.tones.map((key) => `<label class="inline-check"><input type="checkbox" data-tone-allowed="${key}" data-tone-scope="${scope}" ${!tone.allowed.length || tone.allowed.includes(key) ? "checked" : ""}>${h(labels[key])}</label>`).join("")}</div><small>${h(p.kind === "breeze" ? "Breeze 可插入原生音频事件，并用 [语气:描述] 或 [用温柔的语气] 指定后续区段的表达；控制标记从聊天保留文字中隐藏。允许列表约束可选的 [mmtts:ID] 头部标签。" : supportsVoiceStyle(p, isVoice ? v.id : p.voice, isVoice ? voiceResource(p) : undefined) ? "可用 [mmtts:happy]你好，或 [mmtts:style=轻声而温柔]你好。整条回复仅用一个头部标签，控制标记从保留文字中隐藏。" : "仅接受允许列表中的头部语调标签，例如 [mmtts:happy]你好。此组合使用原生情感枚举，不接受自由语气或局部事件。")} </small></fieldset>` : ""}` : ""}</div></section>`;
       }
       function updateTone(el) {
         const scope = el.dataset.toneScope,
@@ -4681,6 +4691,68 @@
         return `<div class="route-grid"><section class="maibot-card panel"><div class="panel-head"><div><h2>整体语音路由</h2><p>按 Provider/Model 选择首选与备选，每条路由明确使用具体模型。</p><p id="routing-status" class="dirty-label" role="status" aria-live="polite"></p></div><button class="maibot-button maibot-button-primary key small" data-action="save-routing" data-save="routing">保存语音路由</button></div><div class="panel-body"><div class="section-title"><h3>首选路由</h3><small>PRIMARY</small></div><div class="model-row"><div class="model-copy"><strong>${h(routeName(primary))}</strong></div><button class="maibot-button maibot-button-primary key small" data-route-pick="primary">选择服务商 / 模型</button></div>${routeVoiceField(primary, "primary")}<hr class="split"><div class="section-title"><h3>有序备选</h3><small>FALLBACK CHAIN</small></div>${state.config.fallbacks.map((target, index) => `<div class="maibot-card panel panel-body" style="margin-bottom:12px"><div class="flex-wrap"><span class="order">${index + 1}</span><strong style="flex:1;overflow-wrap:anywhere;font-size:13px">${h(routeName(target))}</strong><button class="maibot-button key small" data-route-pick="${index}">更换模型</button><button class="maibot-button key small" data-route-up="${index}" aria-label="上移备选 ${index + 1}" ${index === 0 ? "disabled" : ""}>↑</button><button class="maibot-button key small" data-route-down="${index}" aria-label="下移备选 ${index + 1}" ${index === state.config.fallbacks.length - 1 ? "disabled" : ""}>↓</button><button class="maibot-button key small flat danger" data-route-remove="${index}" aria-label="移除备选 ${index + 1}">×</button></div>${routeVoiceField(target, index)}</div>`).join("")}<button class="maibot-button key" data-action="add-backup">＋ 添加备选路由</button></div></section><aside class="maibot-card panel panel-body"><div class="overline">PROVIDER / MODEL</div><h2 style="margin-top:9px">统一选择声音的来源</h2><ol class="route-guide"><li>平台页管理连接、模型库与音色资源。</li><li>整体路由指定实际使用的服务商、模型与音色。</li><li>同一服务商的不同模型也可分别加入备选。</li><li>按列表顺序调用，结果以平台与适配器回执为准。</li></ol><div class="note" style="margin-top:18px">聊天切换：<br><code>/mmtts model</code> 查看编号列表<br><code>/mmtts model 2</code> 按编号切换<br><code>/mmtts model Provider/Model</code> 按名称切换</div></aside></div>`;
       }
 
+      async function enableProbabilityTone(input) {
+        const config = state.config, changes = [], supported = [], unsupported = [];
+        // 按实际首选与备选路由解析音色覆盖，避免误改平台当前编辑的其他模型。
+        for (const route of [config.primary, ...config.fallbacks].filter(Boolean)) {
+          const root = config.profiles.find((p) => p.id === route.provider_id && p.enabled),
+            model = root?.models.find((m) => m.id === (route.model_id || root.model));
+          if (!model) continue;
+          const p = modelProfile(root, model), id = route.voice ?? p.voice,
+            voice = root.voices.find((v) => v.id === id && (!v.model || v.model === model.id)),
+            cap = toneCapability(p, id, voice?.resource_id || p.options.resource_id),
+            label = `${root.name} / ${model.name || model.id}${voice ? " / " + voice.name : id ? " / " + id : ""}`;
+          if (!cap || (p.kind === "compatible" && protocolFor(p).mode === "custom" && !supportsVoiceStyle(p, id))) {
+            unsupported.push(label);
+            continue;
+          }
+          supported.push(label);
+          const tone = structuredClone(voice?.tone || p.tone);
+          if (tone.mode === "dynamic") continue;
+          tone.mode = "dynamic";
+          if (!cap.tones.includes(tone.emotion)) tone.emotion = cap.tones[0];
+          tone.allowed = tone.allowed.filter((value) => cap.tones.includes(value));
+          if (tone.allowed.length && !tone.allowed.includes(tone.emotion)) tone.allowed.push(tone.emotion);
+          changes.push({root, model, p, voice, tone});
+        }
+        if (!supported.length) {
+          input.checked = false;
+          showError("当前语音路由没有支持动态语调的模型或音色，请先调整语音路由。");
+          return;
+        }
+        if (changes.some(({root}) => root.voices.length + changes.filter((item) => item.root === root && item.voice && !item.voice.model).length > 100)) {
+          input.checked = false;
+          showError("当前平台音色收藏已满，请先为路由音色指定所属模型，再开启语调自适应。");
+          return;
+        }
+        const list = (items) => `<ul class="tone-route-list">${items.map((label) => `<li>${h(label)}</li>`).join("")}</ul>`;
+        const accepted = await ask("开启概率语音 LLM 语调自适应？",
+          changes.length ? "此功能仅对动态语调生效。是否同时开启下列路由模型或音色的动态语调？" : "下列路由已启用动态语调，是否开启 LLM 语调自适应？", {
+            details: list(changes.length ? changes.map(({root, model, voice}) => `${root.name} / ${model.name || model.id}${voice ? " / " + voice.name : "（模型）"}`) : supported) +
+              (unsupported.length ? `<p class="muted">以下路由未提供动态语调，语调自适应不在这些路由上生效：</p>${list(unsupported)}` : "") +
+              '<p class="muted">保存全部设置后生效；关闭此开关保留模型和音色的语调设置。</p>',
+            confirmLabel: changes.length ? "开启并同步语调" : "开启",
+          });
+        if (accepted) {
+          for (const {root, model, p, voice, tone} of changes) {
+            if (voice) {
+              if (voice.model) voice.tone = tone;
+              else {
+                // 旧收藏可跨模型共用；新增当前模型的覆盖，不改变其他模型的同名音色。
+                root.voices.unshift({...structuredClone(voice), model: model.id, tone});
+              }
+            } else {
+              model.parameters ||= {response_format: p.response_format, speed: p.speed,
+                instructions: p.instructions, options: structuredClone(p.options)};
+              model.parameters.tone = tone;
+            }
+          }
+          config.feature.probability_tone_enabled = true;
+          dirty();
+        }
+        input.checked = accepted;
+        input.focus({preventScroll: true});
+      }
       function probabilityToneOptions() {
         const f = state.config.feature,
           options = [["utils", "utils（默认）"], ...state.llmTasks.filter((task) => task !== "utils").map((task) => [task, task])];
@@ -4725,7 +4797,7 @@
             ["ja", "日本語"],
           ],
           "模型或音色选择动态模式时生效。固定语调直接使用配置，正文保持原样。",
-        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅在抽中概率语音、且实际路由的模型和音色启用动态语调时生效；未启用则忽略。保持原文，重试耗尽后使用路由默认语调。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div>`;
+        )}</div></section><section class="maibot-card panel"><div class="panel-head"><div><h2>偶尔，用声音回复</h2><p>整轮回复只抽取一次概率，分段保持一致。</p></div></div><div class="panel-body">${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "按整轮 LLM 回复判断长度和概率，短分段沿用本轮结果；指令返回与插件通知保持原样。")}<div class="form-grid" style="margin-top:18px">${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}${field("feature.probability_max_text_length", "最长字符数", f.probability_max_text_length, "", "number")}</div><hr class="split">${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每个分段先发送文字，再单独发送对应语音。")}${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "开启后先发送引用卡片与回复文字，再单独发送正文语音。关闭后引用回复使用文字，普通文本回复继续按概率转换。")}<hr class="split">${toggleField("feature.probability_tone_enabled", "概率语音 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效。指令型模型可使用自由语气，情感枚举型模型按允许列表选择；开启时可同步设置路由音色。")}<div id="probability-tone-options" style="margin-top:18px">${probabilityToneOptions()}</div></div></section></div>`;
       }
       function previewModelOptions() {
         const p = state.config.profiles.find(
@@ -4793,12 +4865,12 @@
           dialogResolve = null;
         }
       }
-      function ask(title, message) {
+      function ask(title, message, {details = "", confirmLabel = "确认"} = {}) {
         return new Promise((resolve) => {
           dialogResolve = resolve;
           dialog(
             title,
-            `<p>${h(message)}</p><div class="flex-wrap" style="justify-content:flex-end;margin-top:25px"><button class="maibot-button key" data-action="close-dialog">取消</button><button class="maibot-button maibot-button-primary key primary" data-action="confirm-dialog">确认</button></div>`,
+            `<p>${h(message)}</p>${details}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-dialog">取消</button><button class="maibot-button maibot-button-primary key primary" data-action="confirm-dialog">${h(confirmLabel)}</button></div>`,
           );
         });
       }
@@ -5744,6 +5816,10 @@
         if (state.busy || state.saving || !state.config) return;
         const key = el.dataset.field;
         if (!key) return;
+        if (key === "feature.probability_tone_enabled" && el.checked) {
+          void enableProbabilityTone(el);
+          return;
+        }
         if (state.voiceWorkspace) markVoiceEdited();
         if (state.modelEditor && !key.startsWith("feature.")) {
           const p = state.modelEditor.profile;

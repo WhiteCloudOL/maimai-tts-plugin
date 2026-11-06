@@ -199,6 +199,7 @@ class TaggedText:
     tone: Optional[str] = None
     error: str = ""
     tagged: bool = False
+    direction: str = ""
 
 
 def parse_tone_tag(text: str) -> TaggedText:
@@ -207,10 +208,17 @@ def parse_tone_tag(text: str) -> TaggedText:
     if not markers:
         return TaggedText(text)
     clean = TAG_CANDIDATE.sub("", text).strip()
-    match = re.match(r"^\s*\[mmtts:([a-z]+)\]", text)
+    match = re.match(r"^\s*\[mmtts:(?:([a-z]+)|style=([^\]\r\n]*))\]", text)
     if len(markers) != 1 or match is None or match.end() != markers[0].end():
         return TaggedText(clean, error="语调标签应为正文开头唯一的 [mmtts:语调ID]", tagged=True)
-    tone = match.group(1)
+    tone, direction = match.groups()
+    if direction is not None:
+        direction = direction.strip()
+        if not direction or len(direction) > 200 or "[" in direction:
+            return TaggedText(clean, error="自由语气须为 200 字以内、不含控制标记的单行描述", tagged=True)
+        if not clean:
+            return TaggedText(clean, error="语调标签后需要填写朗读正文", tagged=True)
+        return TaggedText(clean, tagged=True, direction=direction)
     if tone not in TONE_LABELS:
         return TaggedText(clean, error="语调标签包含未知的语调 ID", tagged=True)
     if not clean:
@@ -236,7 +244,15 @@ def validate_tone_settings(tone: Any, kind: str, model: str, voice: str, resourc
         raise ValueError("MiniMax 使用原生情感选项，请清空自由风格描述")
 
 
-def tone_prompt(allowed: List[str], language: str, *, automatic: bool, default: str = "neutral") -> str:
+def tone_prompt(
+    allowed: List[str],
+    language: str,
+    *,
+    automatic: bool,
+    default: str = "neutral",
+    direction_limit: int = 0,
+    weighted: bool = False,
+) -> str:
     choices = ", ".join(f"{key}({TONE_LABELS[key]})" for key in allowed)
     prompts = {
         "zh": (
@@ -273,4 +289,24 @@ def tone_prompt(allowed: List[str], language: str, *, automatic: bool, default: 
         else "タグは mmtts_speak の text 引数の先頭にだけ付け、通常のテキスト返信は本文をそのまま返してください。",
     }
     example = "happy" if "happy" in allowed else default if default in allowed else allowed[0]
-    return prompts[language].format(choices=choices, placement=placements[language], default=default, example=example)
+    prompt = prompts[language].format(choices=choices, placement=placements[language], default=default, example=example)
+    controls = {
+        "zh": "也可改用 [mmtts:style=说话方式] 指定整段自由语气，描述最多 {limit} 字符；与 ID 标签二选一，正文保持纯文本。",
+        "en": "Alternatively, use [mmtts:style=delivery description] for whole-utterance delivery, at most {limit} characters. Choose either this or the tone ID tag, and keep the body plain text.",
+        "ja": "代わりに [mmtts:style=話し方の説明] で全体の話し方を指定できる。説明は {limit} 文字以内。ID タグとの併用はせず、本文は朗読する言葉だけにする。",
+    }
+    strict = {
+        "zh": "当前模型采用限定语调，不能使用 style、自由语气或局部事件标签。",
+        "en": "This model accepts only the listed tones: do not use style, free-form delivery or local event tags.",
+        "ja": "このモデルは許可された語調のみを受け付ける。style、自由な話し方、局所的な音声イベントタグは使わない。",
+    }
+    counts = {
+        "zh": "汉字计 2 字符，其他计 1。",
+        "en": " Han characters count as 2; others as 1.",
+        "ja": "漢字は2文字、他は1文字として数える。",
+    }
+    return (
+        prompt + controls[language].format(limit=direction_limit) + (counts[language] if weighted else "")
+        if direction_limit
+        else prompt + strict[language]
+    )

@@ -6,6 +6,7 @@ from maibot_sdk.types import HookMode
 from typing import Any, Dict, List, Optional
 
 from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tags
+from ..domain.adaptive_tone import direction_limit
 from ..domain.intonation import tone_capability, tone_prompt
 from ..domain.models import Profile, TTSError
 
@@ -14,7 +15,7 @@ class IntonationMixin:
     @Tool(
         "mmtts_tone_options",
         brief_description="查看当前 TTS 的语调模式与允许的动态语调",
-        detailed_description="查询当前语调和控制语法。Breeze 动态模式另提供局部音频事件表与自由语气标记；其他平台按允许列表使用唯一的头部语调标签。",
+        detailed_description="查询当前模型、音色与资源支持的语调和控制语法。指令型平台可使用整段自由语气；情感枚举型平台仅使用允许的语调 ID。Breeze 另提供局部音频事件与停顿标签。",
         parameters=[],
     )
     async def handle_tone_options(self, **kwargs: Any) -> Dict[str, Any]:
@@ -38,6 +39,15 @@ class IntonationMixin:
             "allowed_tones": allowed if profile.tone.mode == "dynamic" else [],
             "format": "[mmtts:语调ID]正文" if profile.tone.mode == "dynamic" else "直接填写朗读正文",
         }
+        limit = direction_limit(profile)
+        if profile.tone.mode == "dynamic" and limit:
+            result.update(
+                format="[mmtts:语调ID]正文 或 [mmtts:style=说话方式]正文，任选一种头部标签",
+                free_direction={
+                    "scope": "整段语音", "max_characters": limit,
+                    "han_character_weight": 2 if profile.kind == "cosyvoice" else 1,
+                },
+            )
         if profile.kind == "breeze" and profile.tone.mode == "dynamic":
             tags = event_tags(
                 profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
@@ -86,6 +96,8 @@ class IntonationMixin:
             self.features.tone_prompt_language,
             automatic=automatic,
             default=profile.tone.emotion,
+            direction_limit=direction_limit(profile),
+            weighted=profile.kind == "cosyvoice",
         )
 
     @HookHandler(

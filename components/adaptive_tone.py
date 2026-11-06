@@ -6,7 +6,13 @@ from typing import Any, Dict, List, Optional
 import asyncio
 import json
 
-from ..domain.adaptive_tone import ToneDecision, adaptive_prompt, parse_adaptive_tone
+from ..domain.adaptive_tone import (
+    ToneDecision,
+    adaptive_prompt,
+    direction_limit,
+    parse_adaptive_tone,
+    validate_direction,
+)
 from ..domain.intonation import tone_capability
 from ..domain.models import Features, Profile, TTSError
 from ..infrastructure.diagnostics import Diagnostics
@@ -27,20 +33,30 @@ class ProbabilityToneAdapter:
         if cap is None:
             return None
         tones = profile.tone.allowed or cap["tones"]
-        # 只在同一轮内复用兼容决定；不同允许列表或 Breeze 自由指令能力分别分类。
+        # 只在同一轮内复用兼容决定；不同允许列表、自由指令能力和剩余长度分别分类。
         # 不持久缓存 LLM 分类，避免模型/提示/语调配置变更后沿用旧决定。
-        key = json.dumps([tones, profile.kind == "breeze"])
+        key = json.dumps([tones, profile.kind == "breeze", direction_limit(profile), profile.kind == "cosyvoice"])
         if key in self.decisions:
             return self.decisions[key]
-        decision = await self._classify(tones, breeze=profile.kind == "breeze")
+        decision = await self._classify(profile, tones)
         self.decisions[key] = decision
         return decision
 
-    async def _classify(self, tones: List[str], *, breeze: bool) -> Optional[ToneDecision]:
+    async def _classify(self, profile: Profile, tones: List[str]) -> Optional[ToneDecision]:
         timeout = self.features.probability_tone_timeout
-        prompt = adaptive_prompt(self.features.tone_prompt_language, tones, breeze=breeze)
+        limit = direction_limit(profile)
+        feedback = ""
         attempts = self.features.probability_tone_retries + 1
         for attempt in range(1, attempts + 1):
+            prompt = adaptive_prompt(
+                self.features.tone_prompt_language,
+                tones,
+                breeze=profile.kind == "breeze",
+                free_direction=limit > 0,
+                max_direction_length=limit,
+                feedback=feedback,
+                weighted=profile.kind == "cosyvoice",
+            )
             try:
                 # 同时设置 RPC 与外层预算，避免 SDK 默认 RPC 超时提前截断用户配置。
                 result: Any = await asyncio.wait_for(
@@ -59,7 +75,17 @@ class ProbabilityToneAdapter:
                 response = result.get("response")
                 if not isinstance(response, str):
                     raise TTSError("语调 LLM 未返回文本")
-                return parse_adaptive_tone(response, tones, breeze=breeze)
+                try:
+                    decision = parse_adaptive_tone(
+                        response, tones, breeze=profile.kind == "breeze", free_direction=limit > 0
+                    )
+                    if decision.direction:
+                        validate_direction(profile, decision.direction)
+                    return decision
+                except TTSError as exc:
+                    # 重试附带协议校验原因，避免对同一格式错误重复发送相同提示；不回传或记录模型原文。
+                    feedback = str(exc)
+                    raise
             except asyncio.TimeoutError:
                 self.log.warning("概率语音语调自适应超时", timeout_seconds=timeout, attempt=attempt, attempts=attempts)
             except TTSError as exc:

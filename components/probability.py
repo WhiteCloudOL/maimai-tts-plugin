@@ -14,7 +14,7 @@ from ..domain.breeze_control import parse_breeze_text
 from ..domain.intonation import parse_tone_tag
 from ..domain.models import TTSError
 from ..infrastructure.voice_codec import voice_segment
-from ..services.intonation import validate_requested_tone
+from ..services.intonation import validate_requested_direction, validate_requested_tone
 from .adaptive_tone import ProbabilityToneAdapter
 
 
@@ -153,13 +153,15 @@ class ProbabilityMixin:
                 if not breeze.display_text:
                     tag_error = "自动语音的控制标记后需要填写朗读正文"
         display_text = breeze.display_text if breeze_controls else parsed.text
-        if parsed.tone and not tag_error:
+        if (parsed.tone or parsed.direction) and not tag_error:
             profile = self.primary_tone_profile()
             if profile is None:
                 tag_error = "整体语音路由尚待配置"
             else:
                 try:
                     validate_requested_tone(profile, parsed.tone)
+                    if parsed.direction:
+                        validate_requested_direction(profile, parsed.direction)
                 except TTSError as exc:
                     tag_error = str(exc)
         if tag_error:

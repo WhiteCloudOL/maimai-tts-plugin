@@ -3,6 +3,7 @@
 from typing import List, Optional, Tuple
 
 from ..domain.bailian import instruction_length
+from ..domain.adaptive_tone import validate_direction
 from ..domain.breeze_control import clean_breeze_text, parse_breeze_text
 from ..domain.intonation import TONE_DIRECTIONS, parse_tone_tag, tone_capability, validate_tone_settings
 from ..domain.models import Profile, TTSError
@@ -20,10 +21,20 @@ def validate_requested_tone(profile: Profile, requested: Optional[str]) -> None:
         raise TTSError("动态标签中的语调未获当前模型或音色允许；允许的 ID：" + "、".join(allowed))
 
 
-def apply_tone(profile: Profile, requested: Optional[str]) -> Tuple[Profile, str]:
+def validate_requested_direction(profile: Profile, direction: str) -> None:
+    if profile.tone.mode != "dynamic":
+        raise TTSError("自由语气需要在当前模型或音色中启用动态语调")
+    validate_direction(profile, direction)
+
+
+def apply_tone(profile: Profile, requested: Optional[str], *, direction: str = "") -> Tuple[Profile, str]:
     settings = profile.tone
     if requested is not None:
         validate_requested_tone(profile, requested)
+    if direction:
+        validate_requested_direction(profile, direction)
+        instructions = "\n".join(value for value in (profile.instructions, direction) if value)
+        return profile.model_copy(deep=True, update={"instructions": instructions}), "custom"
     if settings.mode == "off":
         return profile, ""
     try:
