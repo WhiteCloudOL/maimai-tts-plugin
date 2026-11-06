@@ -9,14 +9,14 @@ from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tag
 from ..domain.adaptive_tone import direction_limit
 from ..domain.intonation import tone_capability, tone_choices, tone_prompt
 from ..domain.models import Profile, TTSError
-from ..domain.prompts import DEFAULT_PROMPTS, prompt_template
+from ..domain.prompts import DEFAULT_PROMPTS, has_variable, prompt_template, render_prompt
 
 
 class IntonationMixin:
     @Tool(
         "mmtts_tone_options",
         brief_description="查看当前 TTS 的语调模式与允许的动态语调",
-        detailed_description="查询当前模型、音色与资源支持的语调和控制语法。指令型平台可使用整段自由语气；情感枚举型平台仅使用允许的语调 ID。Breeze 另提供局部音频事件与停顿标签。",
+        detailed_description="查看当前可用语调 ID、表达含义和控制写法；Breeze 还返回完整音频事件与停顿标签表。",
         parameters=[],
     )
     async def handle_tone_options(self, **kwargs: Any) -> Dict[str, Any]:
@@ -132,6 +132,17 @@ class IntonationMixin:
             prompt_template(self.features.prompt_overrides, profile.kind, "tool", self.features.tone_prompt_language)
             if profile is not None else DEFAULT_PROMPTS["tool"][self.features.tone_prompt_language]
         )
+        query_available = any(
+            isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_tone_options"
+            for item in tool_definitions
+        )
+        if prompt and query_available and "mmtts_tone_options" not in tool_prompt and "mmtts_tone_options" not in prompt:
+            query_hint = {
+                "zh": "调用 mmtts_tone_options 可查看当前完整可用语调、音频事件及控制写法。",
+                "en": "Call mmtts_tone_options for the complete current tone list, audio events and control syntax.",
+                "ja": "現在の全語調、音声イベント、制御構文はmmtts_tone_optionsで確認できる。",
+            }
+            prompt += "\n" + query_hint[self.features.tone_prompt_language]
         # 固定或关闭模式的规划请求只保留朗读工具；动态模式才暴露语调查询与标签协议。
         definitions = [
             deepcopy(item)
@@ -142,9 +153,11 @@ class IntonationMixin:
         for item in definitions:
             function = item.get("function")
             if isinstance(function, dict) and function.get("name") == "mmtts_speak":
-                function["description"] = "\n\n".join(
-                    value for value in (tool_prompt, prompt) if value
-                )
+                description = render_prompt(tool_prompt, {"dynamic_tone": prompt})
+                # 旧的自定义说明未引用变量时，仍提供当前路由的完整规则；显式引用时只展开一次。
+                if prompt and not has_variable(tool_prompt, "dynamic_tone"):
+                    description += "\n\n" + prompt
+                function["description"] = description.strip()
         return {"action": "continue", "modified_kwargs": dict(kwargs, tool_definitions=definitions)}
 
     @HookHandler(

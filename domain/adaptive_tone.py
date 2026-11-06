@@ -8,7 +8,7 @@ import json
 
 from .models import Profile, TTSError
 from .bailian import instruction_length
-from .breeze_control import COMMON_EVENT_INDICES, event_tags
+from .breeze_control import event_tags
 from .style import supports_style
 from .volcengine import cot_text
 from .prompts import DEFAULT_PROMPTS, has_variable, render_prompt
@@ -31,8 +31,8 @@ ToneAdapter = Callable[[Profile], Awaitable[Optional[ToneDecision]]]
 
 
 def breeze_event_options(profile: Profile) -> Dict[str, List[str]]:
-    tags = event_tags(profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted")
-    return {code: [values[index] for index in COMMON_EVENT_INDICES] for code, values in tags.items()}
+    # 自适应请求不带查询工具，直接提供当前接口、语种的完整事件表。
+    return event_tags(profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted")
 
 
 def apply_breeze_events(text: str, events: Tuple[BreezeEvent, ...]) -> str:
