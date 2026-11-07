@@ -4053,7 +4053,7 @@
         if ([state.config.primary, ...state.config.fallbacks].filter(Boolean).some((target) => {
           if (target.provider_id !== p.id || !affected.has(target.model_id || p.model)) return false;
           const selected = p.models.find((m) => m.id === (target.model_id || p.model));
-          return (target.voice ?? selected?.voice ?? p.voice) === voice.id;
+          return (target.voice?.trim() || (selected ? selected.voice : p.voice)) === voice.id;
         })) throw Error(`整体路由正在使用音色“${voice.name}”，请在“语音路由”选择其他音色后移除。`);
         const confirmed = await ask("移除音色收藏", `从此平台的收藏中移除“${voice.name}”，并清理关联模型的音色选择。云端音色由“删除云端音色”操作管理。`);
         if (!confirmed) { showVoiceWorkspace(); return; }
@@ -4326,7 +4326,7 @@
           const target = {
             provider_id: selected.provider_id,
             model_id: selected.model_id,
-            voice: remembered?.voice ?? selected.voice ?? "",
+            voice: remembered?.voice?.trim() || null,
           };
           if (picker.routeSlot === "primary") {
             state.config.primary = target;
@@ -4775,12 +4775,19 @@
           (v) => v.id === target?.provider_id,
         );
         if (!p) return "";
+        const modelId = target.model_id || p.model,
+          model = p.models.find((entry) => entry.id === modelId),
+          defaultVoice = model ? model.voice : p.voice,
+          override = target.voice?.trim() || null;
         const voices = voiceCandidates({
           ...p,
-          model: target.model_id,
-          voice: target.voice || "",
+          model: modelId,
+          voice: override || defaultVoice,
         });
-        return `<div class="field" style="margin-top:14px"><label for="route-voice-${slot}">此路由使用的音色</label><select id="route-voice-${slot}" class="maibot-input input" data-route-voice="${slot}"><option value="">使用参考录音或模型参数</option>${voices.map((v) => `<option value="${h(v.id)}" ${v.id === target.voice ? "selected" : ""}>${h(v.name || v.id)}</option>`).join("")}</select></div>`;
+        const defaultName = voices.find((v) => v.id === defaultVoice)?.name || defaultVoice,
+          missing = isBreezeCloud(p) && !override && !defaultVoice,
+          defaultLabel = defaultVoice ? `沿用模型默认音色 · ${defaultName}` : isBreezeCloud(p) ? "未配置模型默认音色，请选择" : "沿用模型参数或参考录音";
+        return `<div class="field" style="margin-top:14px"><label for="route-voice-${slot}">此路由使用的音色</label><select id="route-voice-${slot}" class="maibot-input input" data-route-voice="${slot}"><option value="" ${!override ? "selected" : ""}>${h(defaultLabel)}</option>${voices.map((v) => `<option value="${h(v.id)}" ${v.id === override ? "selected" : ""}>${h(v.name || v.id)}</option>`).join("")}</select>${missing ? '<small role="status">请先在该模型的“音色与克隆”中保存并选用音色，或在上方选择已有音色。</small>' : ""}</div>`;
       }
       function routingView() {
         const primary = state.config.primary;
@@ -4798,7 +4805,7 @@
             unsupported.push(`${root?.name || route.provider_id} / ${route.model_id || root?.model || "未配置模型"}（服务商或模型不可用）`);
             continue;
           }
-          const p = modelProfile(root, model), id = route.voice ?? p.voice,
+          const p = modelProfile(root, model), id = route.voice?.trim() || p.voice,
             voice = root.voices.find((v) => v.id === id && (!v.model || v.model === model.id)),
             cap = toneCapability(p, id, voice?.resource_id || p.options.resource_id),
             label = `${root.name} / ${model.name || model.id}${voice ? " / " + voice.name : id ? " / " + id : ""}`;
@@ -6312,7 +6319,7 @@
             el.dataset.routeVoice === "primary"
               ? state.config.primary
               : state.config.fallbacks[+el.dataset.routeVoice];
-          target.voice = el.value;
+          target.voice = el.value || null;
           dirty();
           renderSummary();
         }

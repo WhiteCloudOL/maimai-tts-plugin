@@ -175,6 +175,11 @@ class TTSService:
         # 整条备选链必须在聊天 Hook / Tool 的 600 秒预算内结束。
         if config is None:
             config = self.store.config
+        if voice is not None:
+            # 工具的可选 voice 留空与省略等价，不能清除路由或模型中的音色。
+            if not isinstance(voice, str):
+                raise TTSError("voice 参数应为音色 ID 或名称字符串")
+            voice = voice.strip() or None
         with trace_scope((text, *(profile.api_key for profile in config.profiles))):
             try:
                 return await asyncio.wait_for(

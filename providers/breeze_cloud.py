@@ -135,7 +135,7 @@ class BreezeCloudProvider(Provider):
     async def synthesize(self, profile: Profile, text: str) -> Audio:
         options = profile.options
         if not profile.voice:
-            raise TTSError("Breeze 在线合成需要已保存的音色 ID，请同步账号音色或创建克隆、设计音色")
+            raise TTSError("当前 Breeze 合成未选中音色；请在此模型的“音色与克隆”保存音色 ID，并在“语音路由”选择该音色或沿用模型默认音色")
         if len(text) > options.breeze_max_characters:
             raise TTSError(f"Breeze 在线文本超过当前账号配置的 {options.breeze_max_characters} 字符上限")
         body: Dict[str, Any] = {

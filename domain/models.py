@@ -302,11 +302,34 @@ class Profile(Model):
 
     @model_validator(mode="before")
     @classmethod
-    def retain_current_model(cls, value: Any) -> Any:
+    def retain_current_model(cls, value: Any, info: ValidationInfo) -> Any:
         """历史单模型字段保留为编辑上下文，模型库分别保存试听音色。"""
         if isinstance(value, dict) and value.get("model") and not value.get("models"):
             value = dict(value)
             value["models"] = [{"id": value["model"], "voice": value.get("voice", "")}]
+        elif (
+            isinstance(value, dict) and value.get("model")
+            and isinstance(value.get("models"), (list, tuple))
+            and not (isinstance(info.context, dict) and "platform_instructions" in info.context)
+        ):
+            # 模型库是已保存音色的来源；旧的顶层编辑值不能清空模型中的音色。
+            # 只有旧模型条目未提供 voice 字段时，才继承历史顶层值。
+            value = dict(value)
+            entries = list(value["models"])
+            for index, item in enumerate(entries):
+                if isinstance(item, dict) and item.get("id") == value["model"]:
+                    if "voice" in item:
+                        value["voice"] = item["voice"]
+                    else:
+                        entries[index] = {**item, "voice": value.get("voice", "")}
+                    break
+                if isinstance(item, ConfiguredModel) and item.id == value["model"]:
+                    if "voice" in item.model_fields_set:
+                        value["voice"] = item.voice
+                    else:
+                        entries[index] = item.model_copy(update={"voice": value.get("voice", "")})
+                    break
+            value["models"] = entries
         return value
 
     @model_validator(mode="after")
@@ -395,10 +418,9 @@ class Profile(Model):
                 validate_url(item.base_url)
             if item.endpoint:
                 validate_url(item.endpoint, websocket=item.endpoint.startswith(("ws://", "wss://")))
-            if item.id == self.model:
-                item.voice = self.voice
-                if not item.endpoint and not item.base_url:
-                    item.endpoint = self.endpoint
+            # 仅补全接口地址；运行时的临时音色覆盖不回写模型默认值。
+            if item.id == self.model and not item.endpoint and not item.base_url:
+                item.endpoint = self.endpoint
         if self.options.reference_source == "server" and self.kind != "gpt_sovits":
             raise ValueError("只有 GPT-SoVITS 支持服务端参考音频路径")
         if self.base_url:
@@ -692,6 +714,14 @@ class RouteTarget(Model):
     provider_id: str = Field(min_length=1, max_length=64)
     model_id: str = Field(default="", max_length=200)
     voice: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("voice", mode="before")
+    @classmethod
+    def inherit_empty_voice(cls, value: Any) -> Any:
+        # WebUI 的空选项和旧配置中的空字符串均表示沿用模型默认音色。
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class StudioConfig(Model):
