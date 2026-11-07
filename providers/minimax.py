@@ -56,6 +56,8 @@ class MiniMaxProvider(Provider):
 
     def payload(self, profile: Profile, text: str) -> Dict[str, Any]:
         payload = speech_payload(profile, text)
+        # 原生 API 的 model 位于顶层；百炼在共用参数外另有自己的模型包装。
+        payload["model"] = profile.model
         opts = profile.options
         payload["voice_setting"].pop("text_normalization")
         normalization = opts.minimax_normalization or ("basic" if opts.text_normalization else "")
@@ -138,7 +140,7 @@ class MiniMaxProvider(Provider):
         for key in ("output_format", "aigc_watermark"):
             payload.pop(key, None)
         payload["event"] = "task_start"
-        audio, started, finished, request_id = bytearray(), False, False, ""
+        audio, connected, started, finished, request_id = bytearray(), False, False, False, ""
         async with self.http.session.ws_connect(
             self.websocket_url(profile),
             headers=self.headers(profile),
@@ -157,20 +159,29 @@ class MiniMaxProvider(Provider):
                     self.check_result(result, profile)
                 event = result.get("event")
                 request_id = str(result.get("trace_id", request_id))
-                if event == "connection_success":
+                if event == "connected_success":
+                    if connected:
+                        raise TTSError("MiniMax 重复返回建连成功事件")
+                    connected = True
                     await socket.send_json(payload)
                 elif event == "task_started":
+                    if not connected:
+                        raise TTSError("MiniMax 在建连确认前开始合成任务")
                     if started:
                         raise TTSError("MiniMax 重复开始合成任务")
                     started = True
                     await socket.send_json({"event": "task_continue", "text": text})
                     await socket.send_json({"event": "task_finish"})
-                elif event == "task_continued":
+                # 官方示例的音频消息可不带 event，仍按 data / is_final 处理。
+                elif event == "task_continued" or (event is None and ("data" in result or "is_final" in result)):
                     if not started:
                         raise TTSError("MiniMax 在任务开始前返回音频")
                     data = result.get("data", {})
-                    if isinstance(data, dict) and data.get("audio"):
-                        chunk = await asyncio.to_thread(decode_hex, data["audio"], self.http.limit)
+                    if not isinstance(data, dict):
+                        raise TTSError("MiniMax WebSocket 音频数据应为对象")
+                    encoded = data.get("audio")
+                    if encoded is not None and encoded != "":
+                        chunk = await asyncio.to_thread(decode_hex, encoded, self.http.limit)
                         if len(audio) + len(chunk) > self.http.limit:
                             raise TTSError("MiniMax WebSocket 音频超过大小上限")
                         audio.extend(chunk)

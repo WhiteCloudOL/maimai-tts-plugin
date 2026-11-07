@@ -1,0 +1,37 @@
+name: Provider contracts
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  minimax:
+    name: MiniMax / ${{ matrix.os }} / SDK ${{ matrix.sdk }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        sdk: ["2.13.0", "2.21.0"]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - name: Run offline protocol contracts
+        run: >-
+          uv run --isolated --no-project --python 3.12
+          --with-requirements requirements-test.txt
+          --with maibot-plugin-sdk==${{ matrix.sdk }}
+          python -m pytest tests/contracts -q --tb=short
+          -W error::ResourceWarning -p no:cacheprovider
+          -o asyncio_default_fixture_loop_scope=function
