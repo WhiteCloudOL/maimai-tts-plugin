@@ -85,6 +85,8 @@ class ProviderOptions(Model):
     breeze_speaker_boost: bool = False
     breeze_volume: float = Field(default=1, ge=0.01, le=2)
     breeze_voice_type: Literal["all", "default", "personal"] = "all"
+    breeze_voice_filter_language: str = Field(default="zh", max_length=2)
+    breeze_voice_search: str = Field(default="", max_length=200)
     breeze_max_characters: int = Field(default=1000, ge=1, le=2000)
     optimize_text_preview: bool = False
     optimize_instructions: bool = False
@@ -535,6 +537,8 @@ class Profile(Model):
                 raise ValueError("请选择 Breeze 支持的语言代码")
             if self.options.breeze_voice_language not in BREEZE_LANGUAGES:
                 raise ValueError("请选择 Breeze 在线音色的语言")
+            if self.options.breeze_voice_filter_language and self.options.breeze_voice_filter_language not in BREEZE_LANGUAGES:
+                raise ValueError("请选择 Breeze 同步音色的语言，或留空同步全部语言")
             if self.options.breeze_api_mode == "self_hosted":
                 if self.response_format != "wav" or self.speed != 1:
                     raise ValueError("Breeze 自托管返回 WAV，语速倍率保持 1，可通过风格描述控制节奏")

@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  minimax:
-    name: MiniMax / ${{ matrix.os }} / SDK ${{ matrix.sdk }}
+  providers:
+    name: Providers / ${{ matrix.os }} / SDK ${{ matrix.sdk }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:

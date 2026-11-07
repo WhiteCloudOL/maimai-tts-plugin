@@ -1987,6 +1987,8 @@
         breeze_speaker_boost: false,
         breeze_volume: 1,
         breeze_voice_type: "all",
+        breeze_voice_filter_language: "zh",
+        breeze_voice_search: "",
         breeze_max_characters: 1000,
         clone_speaker_id: "",
         clone_billing: "prepaid",
@@ -2564,7 +2566,7 @@
       function breezeOptionsForm(p) {
         const o = p.options;
         const guidance = field("options.breeze_guidance_scale", "CFG 指令强度", o.breeze_guidance_scale, "1–10。纯复刻与普通朗读使用 1；风格指令、声音设计可使用 4 等更高值。", "number");
-        if (isBreezeCloud(p)) return `<div class="form-grid">${guidance}${selectField("options.breeze_transport", "音频交付方式", o.breeze_transport, [["sync", "同步完整音频"], ["stream", "HTTP 流式音频"], ["async", "后台任务 · 自动等待结果"]])}${selectField("options.breeze_language_code", "合成语言", o.breeze_language_code, breezeLanguages(p))}${field("options.breeze_volume", "音量倍率", o.breeze_volume, "0.01–2，1 为原始音量。", "number")}${toggleField("options.breeze_speaker_boost", "加强说话人相似度", o.breeze_speaker_boost, "带风格指令且 CFG 大于 1 时，平台优先按指令生成。")}${selectField("options.breeze_voice_type", "同步音色目录", o.breeze_voice_type, [["all", "公共与个人音色"], ["default", "公共音色"], ["personal", "个人账号音色"]])}${field("options.breeze_max_characters", "账号文本长度上限", o.breeze_max_characters, "默认 1000，获批的账号可填写至 2000。", "number")}</div>`;
+        if (isBreezeCloud(p)) return `<div class="form-grid">${guidance}${selectField("options.breeze_transport", "音频交付方式", o.breeze_transport, [["sync", "同步完整音频"], ["stream", "HTTP 流式音频"], ["async", "后台任务 · 自动等待结果"]])}${selectField("options.breeze_language_code", "合成语言", o.breeze_language_code, breezeLanguages(p))}${field("options.breeze_volume", "音量倍率", o.breeze_volume, "0.01–2，1 为原始音量。", "number")}${toggleField("options.breeze_speaker_boost", "加强说话人相似度", o.breeze_speaker_boost, "带风格指令且 CFG 大于 1 时，平台优先按指令生成。")}${selectField("options.breeze_voice_type", "同步音色目录", o.breeze_voice_type, [["all", "公共与个人音色"], ["default", "公共音色"], ["personal", "个人账号音色"]])}${selectField("options.breeze_voice_filter_language", "同步音色语言", o.breeze_voice_filter_language, [["", "全部语言"], ...breezeLanguages(p, false)])}${field("options.breeze_voice_search", "同步音色关键词", o.breeze_voice_search, "可选，按名称或声音描述筛选；目录最多同步 1000 项，不改变已收藏音色。")}${field("options.breeze_max_characters", "账号文本长度上限", o.breeze_max_characters, "默认 1000，获批的账号可填写至 2000。", "number")}</div>`;
         return `<div class="form-grid">${guidance}${field("options.seed", "随机种子", o.seed ?? "", "留空使用 42；相同录音、文本与种子便于复现。", "number")}${selectField("options.breeze_mode", "模型默认声音来源", o.breeze_mode, [["reference", "参考录音 · 原声复刻 / 语气引导"], ["design", "文字设计声音"], ["plain", "模型原生声音"]])}<p class="muted wide">每个音色可单独保存录音、文字稿、风格与语调。模型默认参考录音用于未指定收藏音色时的合成。本地API 输出为单声道 WAV。</p>${o.breeze_mode === "reference" ? referenceForm(p) + area("options.reference_text", "参考录音文字稿", o.reference_text, "准确填写录音中说出的全部内容。") : ""}</div>`;
       }
       function cloudDesign(p) {
@@ -6051,7 +6053,7 @@
             if (key === "options.breeze_transport" && parsed === "stream" && !["wav", "mp3", "pcm"].includes(p.response_format)) p.response_format = "wav";
             showModelDialog(); return;
           }
-          if (p.kind === "breeze" && key === "options.breeze_voice_type") invalidateProfileLists(p.id);
+          if (p.kind === "breeze" && ["options.breeze_voice_type", "options.breeze_voice_filter_language", "options.breeze_voice_search"].includes(key)) invalidateProfileLists(p.id);
           invalidateConnectionField(state.modelEditor.profile.id, key);
           if (key === "response_format" && state.modelEditor.profile.kind === "volcengine" && value === "opus")
             state.modelEditor.profile.options.sample_rate = 48000;

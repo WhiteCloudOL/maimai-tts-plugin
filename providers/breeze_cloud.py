@@ -38,6 +38,8 @@ class BreezeCloudProvider(Provider):
         values["model"] = ""
         if operation == "voices":
             values["voice_type"] = profile.options.breeze_voice_type
+            values["language_code"] = profile.options.breeze_voice_filter_language
+            values["search"] = profile.options.breeze_voice_search.strip()
         return values
 
     async def models(self, profile: Profile) -> List[str]:
@@ -64,6 +66,10 @@ class BreezeCloudProvider(Provider):
         token, seen = "", set()
         for page in range(1, 11):
             params = {"page_size": 100, "voice_type": profile.options.breeze_voice_type}
+            if profile.options.breeze_voice_filter_language:
+                params["language_code"] = profile.options.breeze_voice_filter_language
+            if profile.options.breeze_voice_search.strip():
+                params["search"] = profile.options.breeze_voice_search.strip()
             params["next_page_token" if token else "page"] = token if token else page
             async with self.http.session.get(
                 self.url(profile, "voices"),
@@ -74,6 +80,9 @@ class BreezeCloudProvider(Provider):
             ) as response:
                 raw = await self.http.read(response, 1024 * 1024)
             data = await self.http.decode_json(raw, self.headers(profile))
+            # 公共目录已有上万项，先提示收窄条件，避免无效读取十页后才失败。
+            if type(data.get("total")) is int and data["total"] > 1000:
+                raise TTSError("Breeze 当前筛选超过 1000 个音色，请选择同步音色语言、填写搜索关键词或切换个人目录")
             items = data.get("voices")
             if not isinstance(items, list) or len(items) > 100:
                 raise TTSError("Breeze 账号音色响应缺少 voices 数组")
@@ -105,7 +114,7 @@ class BreezeCloudProvider(Provider):
             if next_token and next_token == token:
                 raise TTSError("Breeze 音色分页标记重复，请检查服务端响应")
             token = next_token or ""
-        raise TTSError("Breeze 音色目录超过 1000 项，请在平台参数中选择公共或个人目录后重新同步")
+        raise TTSError("Breeze 当前筛选超过 1000 个音色，请选择同步音色语言、填写搜索关键词或切换个人目录")
 
     async def audio(self, profile: Profile, path: str, fmt: str = "wav") -> Audio:
         async with self.http.session.get(
@@ -179,7 +188,7 @@ class BreezeCloudProvider(Provider):
             status = data.get("status")
             if status == "ready":
                 return await self.audio(profile, path + "/audio", profile.response_format)
-            if status not in {"queued", "pending", "running", "processing"}:
+            if status not in {"queued", "pending", "running", "processing", "streaming"}:
                 raise TTSError("Breeze 后台合成尚未成功完成，状态：" + str(status))
             await asyncio.sleep(0.5)
 

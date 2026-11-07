@@ -63,6 +63,8 @@ class CacheKeys:
         )
         management = {
             "breeze_voice_type",
+            "breeze_voice_filter_language",
+            "breeze_voice_search",
             "breeze_voice_language",
             "breeze_max_characters",
             "voice_consent_id",
