@@ -1,7 +1,7 @@
 """SDK 插件 API 应用服务：目录、校验、语调分析、合成与投递。"""
 
 from io import BytesIO
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 from time import monotonic
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -14,8 +14,8 @@ import json
 from ..domain.adaptive_tone import apply_breeze_events, direction_limit, parse_adaptive_tone
 from ..domain.breeze_control import event_tags, parse_breeze_text
 from ..domain.intonation import parse_tone_tag, tone_capability
-from ..domain.models import Audio, Profile, StudioConfig, TTSError, TTSOperationError, safe_validation_error
-from ..api.models import API_VERSION, APIError, APIRequest, AudioSend
+from ..domain.models import Audio, Features, Profile, StudioConfig, TTSError, TTSOperationError, safe_validation_error
+from ..api.models import API_TIMEOUT_SECONDS, API_VERSION, APIError, APIRequest, AudioRead, AudioSend, DescriptionQuery, JobQuery, VoicesQuery
 from ..api.parameters import apply_parameters, parameter_schema, public_profile
 from ..domain.voice_catalog import get_catalog
 from ..infrastructure.api_runtime import APIAudioStore, APIJobs
@@ -83,7 +83,7 @@ class PluginAPIService:
         if not self.enabled() or not self.store.features.api_enabled:
             raise APIError("API_DISABLED", "请在通用设置中启用插件 API")
 
-    async def call(self, operation: str, **kwargs: Any) -> Dict[str, Any]:
+    async def call(self, operation: str, /, **kwargs: Any) -> Dict[str, Any]:
         request_id = kwargs.get("request_id", "")
         started = monotonic()
         with trace_scope():
@@ -107,11 +107,12 @@ class PluginAPIService:
                 if operation == "catalog":
                     return {"ok": True, "data": self.catalog()}
                 if operation == "voices":
-                    return {"ok": True, "data": await self.voices(**kwargs)}
+                    query = VoicesQuery.model_validate(kwargs)
+                    return {"ok": True, "data": await self.voices(**query.model_dump())}
                 if operation == "describe":
-                    parameters = TypeAdapter(Dict[str, Any]).validate_python(kwargs.pop("parameters", {}), strict=True)
-                    selected = self.select(self.store.config, **kwargs)[0]
-                    selected = apply_parameters(selected, parameters)
+                    query = DescriptionQuery.model_validate(kwargs)
+                    selected = self.select(self.store.config, query.provider_id, query.model_id, query.voice_id)[0]
+                    selected = apply_parameters(selected, query.parameters)
                     return {"ok": True, "data": self.describe(selected)}
                 if operation in {"validate", "analyze"}:
                     if operation == "analyze":
@@ -127,9 +128,11 @@ class PluginAPIService:
                                 "llm_required": request.control.mode == "auto" and self._needs_analysis(request, selected[0])}}
                     return await self._start(request, background=False, analysis_profile=selected[0])
                 if operation == "get_audio":
-                    return {"ok": True, "data": self.audio.read(**kwargs)}
+                    query = AudioRead.model_validate(kwargs)
+                    return {"ok": True, "data": self.audio.read(**query.model_dump())}
                 if operation in {"get_job", "cancel_job"}:
-                    job = self.jobs.get(kwargs["job_id"])
+                    query = JobQuery.model_validate(kwargs)
+                    job = self.jobs.get(query.job_id)
                     if operation == "cancel_job" and job.task is not None and not job.task.done():
                         job.task.cancel()
                         await asyncio.gather(job.task, return_exceptions=True)
@@ -155,7 +158,9 @@ class PluginAPIService:
         self.tts.log.warning("API 请求失败", api_request_id=request_id, code=code, error=message)
         return {"ok": False, "request_id": request_id, "error": {"code": code, "message": message}}
 
-    def select(self, config: StudioConfig, provider_id: str = "", model_id: str = "", voice_id: str = "") -> List[Profile]:
+    def select(
+        self, config: StudioConfig, provider_id: str = "", model_id: str = "", voice_id: str = "", *, voice_settings: bool = True,
+    ) -> List[Profile]:
         if model_id and not provider_id:
             raise APIError("INVALID_PARAMETER", "model_id 请与 provider_id 一起填写")
         roots = {profile.id: profile for profile in config.profiles}
@@ -175,7 +180,9 @@ class PluginAPIService:
             selected = root.for_model(model or root.model)
             selected = selected.with_synthesis_overrides(
                 voice=selected.resolve_voice_id(voice_id) if voice_id else route_voice,
-            ).with_selected_voice()
+            )
+            if voice_settings:
+                selected = selected.with_selected_voice()
             output.append(selected)
         return output
 
@@ -242,7 +249,10 @@ class PluginAPIService:
         if profile.kind == "breeze":
             breeze_requests(profile, tagged.text, tagged.tone, direction=tagged.direction)
         else:
-            apply_tone(profile, tagged.tone, direction=tagged.direction)
+            effective, _ = apply_tone(profile, tagged.tone, direction=tagged.direction)
+            if (effective.kind == "volcengine" and effective.instructions and effective.options.enable_ssml
+                    and effective.options.volc_instruction_mode == "cot"):
+                raise APIError("INVALID_PARAMETER", "SSML 与 COT 请分别启用")
         return text
 
     @staticmethod
@@ -263,7 +273,8 @@ class PluginAPIService:
                                           for model in profile.models]} for profile in config.profiles]}
 
     async def voices(self, provider_id: str = "", model_id: str = "", source: str = "saved", refresh: bool = False) -> Dict[str, Any]:
-        profile = self.select(self.store.config, provider_id, model_id)[0]
+        # 音色目录按模型查询；默认音色训练期间仍可查看其他音色与创建状态。
+        profile = self.select(self.store.config, provider_id, model_id, voice_settings=False)[0]
         if source == "account":
             values = await self.tts.catalog_list(profile, "voices", refresh=refresh)
             # 账号接口的附加字段由各平台管理，公共目录只返回跨插件选择所需的字段。
@@ -273,7 +284,8 @@ class PluginAPIService:
             catalog = await asyncio.to_thread(get_catalog)
             item = catalog[profile.kind]
             values = item.get("model_voices", {}).get(profile.model, item.get("voices", []))
-            voices = [{"id": voice, "name": voice, "model_id": profile.model} for voice in values]
+            details = item.get("voice_details", {}).get(profile.model, {})
+            voices = [{"id": voice, "name": details.get(voice, {}).get("name", voice), "model_id": profile.model} for voice in values]
         elif source == "saved":
             voices = [{"id": voice.id, "name": voice.name, "model_id": voice.model, "state": voice.clone_state}
                       for voice in profile.voices if voice.model in ("", profile.model)]
@@ -289,13 +301,14 @@ class PluginAPIService:
                 and parsed.tone is None and not parsed.direction
                 and not (profile.kind == "breeze" and any(part.direction for part in parse_breeze_text(parsed.text).parts)))
 
-    async def analyze(self, request: APIRequest, profile: Profile) -> Dict[str, Any]:
+    async def analyze(self, request: APIRequest, profile: Profile, features: Features) -> Dict[str, Any]:
         result = {**public_profile(profile), "text": request.text,
+                  "parameters": request.parameters,
                   "display_text": clean_display_text(request.text, breeze=profile.kind == "breeze")}
         if not self._needs_analysis(request, profile):
             return dict(result, control_status="existing" if result["tone_supported"] else "unsupported",
                         control={"mode": "manual" if result["tone_supported"] else "off"}, llm_used=False)
-        adapter = ProbabilityToneAdapter(self.ctx, self.store.features, request.text, self.tts.log,
+        adapter = ProbabilityToneAdapter(self.ctx, features, request.text, self.tts.log,
                                         style_hint=request.control.style_hint, required=True, purpose="api")
         try:
             decision = await adapter(profile)
@@ -310,7 +323,11 @@ class PluginAPIService:
         private = (request.text, request.control.style, request.control.style_hint)
         with trace_scope(private):
             try:
-                return {"ok": True, "request_id": request.request_id, "data": await operation()}
+                data = await asyncio.wait_for(operation(), timeout=API_TIMEOUT_SECONDS)
+                return {"ok": True, "request_id": request.request_id, "data": data}
+            except asyncio.TimeoutError:
+                return self.failure(APIError("TIMEOUT", f"API 任务已达到 {API_TIMEOUT_SECONDS:g} 秒执行上限，请调整语音辅助 LLM 或平台请求预算"),
+                                    request_id=request.request_id, private=private)
             except asyncio.CancelledError:
                 self.tts.log.info("API 请求取消", api_request_id=request.request_id)
                 raise
@@ -324,14 +341,18 @@ class PluginAPIService:
     async def _start(self, request: APIRequest, *, background: bool, analysis_profile: Optional[Profile] = None) -> Dict[str, Any]:
         if not request.request_id:
             request.request_id = uuid4().hex
-        fingerprint = hashlib.sha256(json.dumps(
-            ["analyze" if analysis_profile is not None else "generate", request.model_dump(exclude={"request_id"})],
-            sort_keys=True, ensure_ascii=False, separators=(",", ":"),
-        ).encode()).hexdigest()
+        try:
+            encoded = json.dumps(
+                ["analyze" if analysis_profile is not None else "generate", request.model_dump(exclude={"request_id"})],
+                sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+            )
+        except (TypeError, ValueError):
+            raise APIError("INVALID_PARAMETER", "parameters 请使用标准 JSON 类型与有限数值") from None
+        fingerprint = hashlib.sha256(encoded.encode()).hexdigest()
         config = self.store.config
         feature = config.feature
         job = self.jobs.start(request.request_id, fingerprint,
-                              lambda job_id: self._guard(request, lambda: self.analyze(request, analysis_profile)
+                              lambda job_id: self._guard(request, lambda: self.analyze(request, analysis_profile, feature)
                                                         if analysis_profile is not None else self.generate(request, config, job_id)),
                               limit=feature.api_max_jobs, ttl=feature.api_audio_ttl_seconds)
         self.tts.log.info("API 请求接收", api_request_id=request.request_id, job_id=job.job_id,
@@ -377,16 +398,22 @@ class PluginAPIService:
         self.require_enabled()
         actual = selected[audio.provider_id]
         decision = decisions.get(audio.provider_id)
+        tagged = parse_tone_tag(text.strip())
+        requested_tone = decision.tone if decision is not None else tagged.tone
+        requested_style = decision.direction if decision is not None else tagged.direction
+        effective, emotion = apply_tone(actual, requested_tone, direction=requested_style)
         duration = await asyncio.to_thread(audio_duration, audio)
+        self.require_enabled()
         metadata = {**public_profile(actual), "display_text": audio.display_text, "duration_seconds": duration,
-                    "parameters": {key: spec["default"] for key, spec in parameter_schema(actual)["properties"].items()},
+                    "parameters": {key: spec["default"] for key, spec in parameter_schema(effective)["properties"].items()},
                     "cache": {"synthesis": audio.cache_status, "delivery": audio.delivery_cache_status},
                     "control": {"mode": request.control.mode, "llm_used": decision is not None,
-                                "tone": decision.tone if decision is not None else request.control.tone,
-                                "style": decision.direction if decision is not None else request.control.style,
+                                "tone": emotion,
+                                "style": requested_style,
                                 "events": [{"before": event.before, "tag": event.tag} for event in decision.events] if decision is not None else request.control.events}}
-        info = self.audio.put(audio, metadata, ttl=config.feature.api_audio_ttl_seconds,
-                              max_bytes=config.feature.api_audio_max_size_mb * 1024 * 1024)
+        feature = self.store.features
+        info = self.audio.put(audio, metadata, ttl=feature.api_audio_ttl_seconds,
+                              max_bytes=feature.api_audio_max_size_mb * 1024 * 1024)
         result = {"audio": info}
         if request.output == "send":
             result["send"] = await self.send(audio, request.stream_id, request.keep_text)
@@ -401,6 +428,7 @@ class PluginAPIService:
         self.tts.log.info("API 发送开始", stream_id=stream_id, audio_bytes=len(audio.data), keep_text=keep_text)
         segment = await asyncio.to_thread(voice_segment, audio)
         try:
+            self.require_enabled()
             if keep_text and display:
                 await self.sender([{"type": "text", "data": display}], stream_id, display)
                 self.require_enabled()
@@ -420,13 +448,21 @@ class PluginAPIService:
             audio_id, stream_id, keep_text, request_id = params.audio_id, params.stream_id, params.keep_text, params.request_id
             if not params.stream_id.strip():
                 raise APIError("INVALID_PARAMETER", "请填写真实 stream_id，并使用 128 字以内 request_id")
+            request_id = request_id or uuid4().hex
+            fingerprint = hashlib.sha256(json.dumps([audio_id, stream_id, keep_text]).encode()).hexdigest()
+            existing = self.jobs.find(request_id, fingerprint)
+            if existing is not None:
+                self.tts.log.info("API 复用发送结果", api_request_id=request_id, job_id=existing.job_id, audio_id=audio_id)
+                return await self.jobs.wait(existing)
             entry = self.audio.get(audio_id)
             request = APIRequest(text=entry.audio.display_text or "语音", output="send", stream_id=stream_id,
-                                 keep_text=keep_text, request_id=request_id or uuid4().hex)
-            fingerprint = hashlib.sha256(json.dumps([audio_id, stream_id, keep_text]).encode()).hexdigest()
+                                 keep_text=keep_text, request_id=request_id)
 
             async def deliver() -> Dict[str, Any]:
-                audio = await self.tts.prepare_delivery(entry.audio, self.store.features.delivery_format)
+                self.tts.log.info("API 复用音频发送", api_request_id=request_id, audio_id=audio_id, stream_id=stream_id)
+                feature = self.store.features
+                audio = await self.tts.prepare_delivery(entry.audio, feature.delivery_format,
+                                                        integer_seconds=feature.silk_integer_seconds)
                 return {"send": await self.send(audio, stream_id, keep_text)}
 
             feature = self.store.features

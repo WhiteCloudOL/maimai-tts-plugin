@@ -5,23 +5,24 @@ from functools import lru_cache
 from pydantic import TypeAdapter
 from typing import Any, Dict
 
-from ..domain.bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH_RATES
+from ..domain.bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH_RATES, VOICE_LANGUAGES
 from ..domain.breeze import LANGUAGES as BREEZE_LANGUAGES
 from ..domain.catalog import CATALOG
 from ..domain.compatibility import template_variables
 from ..domain.intonation import tone_capability, tone_choices
-from ..domain.minimax import emotions
+from ..domain.minimax import OLD_MODEL_LANGUAGES, emotions
 from ..domain.models import Profile, ProviderOptions
 from ..domain.style import supports_style
 from .models import APIError
 
 
 # 合成参数白名单与现有 ProviderOptions 共用类型约束，连接、账号和管理字段留在工作台。
+SPEECH_HTTP_FIELDS = {"sample_rate", "volume", "pitch", "opus_bit_rate", "seed", "voice_language", "hot_fix", "enable_ssml"}
 OPTION_FIELDS = {
     "openai": {"custom_voice", "openai_stream_format"},
     "compatible": {"custom_voice", "openai_stream_format"},
-    "qwen": {"language", "optimize_instructions"},
-    "cosyvoice": {"sample_rate", "volume", "pitch", "opus_bit_rate", "seed", "voice_language", "hot_fix", "enable_ssml", "alibaba_transport"},
+    "qwen": {"language", "optimize_instructions"} | SPEECH_HTTP_FIELDS,
+    "cosyvoice": {"alibaba_transport"} | SPEECH_HTTP_FIELDS,
     "minimax": {"sample_rate", "minimax_vol", "minimax_pitch", "minimax_emotion", "minimax_bitrate", "minimax_channel",
                 "language_boost", "text_normalization", "latex_read", "pronunciation_tone", "voice_modify_pitch",
                 "voice_modify_intensity", "voice_modify_timbre", "sound_effects", "aigc_watermark", "timbre_weights",
@@ -33,7 +34,8 @@ OPTION_FIELDS = {
     "volcengine": {"sample_rate", "resource_id", "volc_loudness_rate", "volc_bit_rate", "volc_instruction_mode", "volc_pitch",
                    "volc_language", "volc_dialect", "volc_silence_duration", "volc_tone_fidelity", "volc_emotion",
                    "volc_emotion_scale", "aigc_watermark", "latex_read", "pronunciation_tone", "enable_ssml"},
-    "breeze": {"breeze_language_code", "breeze_guidance_scale", "breeze_volume", "breeze_speaker_boost", "breeze_transport"},
+    "breeze": {"breeze_language_code", "breeze_guidance_scale", "breeze_volume", "breeze_speaker_boost", "breeze_transport",
+               "seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text"},
     "mimo": {"optimize_text_preview", "reference_source", "reference_file", "reference_url"},
     "gpt_sovits": {"text_language", "prompt_language", "text_split_method", "top_k", "top_p", "temperature",
                    "reference_source", "reference_file", "reference_path", "reference_text"},
@@ -64,9 +66,12 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
         speed.update(minimum=0.5, maximum=2)
     if profile.kind == "qwen":
         if profile.model in QWEN_AUDIO_MODELS:
-            names = {"sample_rate", "volume", "pitch", "seed", "voice_language", "hot_fix", "enable_ssml"}
+            names = set(SPEECH_HTTP_FIELDS)
+            if tone_capability(profile.kind, profile.model, profile.voice, "") is None:
+                names.discard("enable_ssml")
             speed.update(minimum=0.5, maximum=2)
         else:
+            names = {"language", "optimize_instructions"}
             speed_enabled = False
             formats = ["wav"]
             if not profile.model.startswith("qwen3-tts-instruct-flash"):
@@ -83,6 +88,7 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
             formats = [fmt for fmt in formats if fmt != "opus"]
         if profile.model == "cosyvoice-v2":
             names.discard("hot_fix")
+    if profile.kind == "cosyvoice" or (profile.kind == "qwen" and profile.model in QWEN_AUDIO_MODELS):
         if profile.response_format != "opus":
             names.discard("opus_bit_rate")
     if profile.kind == "compatible" and profile.options.compatibility is not None and profile.options.compatibility.mode == "custom":
@@ -91,22 +97,24 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
         names &= {"custom_voice"} if "voice" in used else set()
         if "response_format" not in used:
             formats = [profile.response_format]
-    if profile.kind in {"siliconflow", "mimo", "gpt_sovits"}:
-        if profile.kind == "siliconflow" and not profile.options.reference_enabled:
-            names -= {"reference_source", "reference_file", "reference_url", "reference_text"}
-        elif profile.options.reference_source == "file":
-            names -= {"reference_url", "reference_path"}
-        elif profile.kind == "gpt_sovits":
-            names.discard("reference_file")
-        else:
-            names.discard("reference_file")
     if profile.kind == "breeze":
         if profile.options.breeze_api_mode == "self_hosted":
             speed_enabled = False
             formats = ["wav"]
-            names = {"breeze_guidance_scale"}
-        elif profile.options.breeze_transport == "stream":
-            formats = ["wav", "mp3", "pcm"]
+            names = {"breeze_guidance_scale", "seed", "breeze_mode"}
+            if profile.options.breeze_mode == "reference":
+                names |= {"reference_source", "reference_file", "reference_url", "reference_text"}
+        else:
+            names -= {"seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text"}
+            if profile.options.breeze_transport == "stream":
+                formats = ["wav", "mp3", "pcm"]
+    if "reference_source" in names:
+        if profile.kind == "siliconflow" and not profile.options.reference_enabled:
+            names -= {"reference_source", "reference_file", "reference_url", "reference_text"}
+        elif profile.options.reference_source == "file":
+            names -= {"reference_url", "reference_path"}
+        else:
+            names.discard("reference_file")
     if profile.kind in {"minimax", "bailian_minimax"}:
         if profile.response_format != "mp3":
             names.discard("minimax_bitrate")
@@ -116,8 +124,8 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
             names.discard("aigc_watermark")
         if profile.kind == "minimax" and (profile.options.minimax_transport == "http" or profile.response_format != "mp3"):
             names.discard("minimax_force_cbr")
-        if profile.kind == "minimax" and profile.options.minimax_transport == "http":
-            names.discard("minimax_normalization")
+        if profile.kind == "minimax" and profile.options.minimax_transport != "http" and profile.response_format != "mp3":
+            names -= {"voice_modify_pitch", "voice_modify_intensity", "voice_modify_timbre", "sound_effects"}
     if profile.kind == "volcengine":
         if profile.response_format not in {"mp3", "opus"}:
             names.discard("volc_bit_rate")
@@ -134,14 +142,31 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
         value.setdefault("description", value.get("title", name))
     if "sample_rate" in properties:
         rates = {
-            "cosyvoice": SPEECH_RATES, "qwen": SPEECH_RATES,
+            "cosyvoice": {8000, 12000, 16000, 24000, 48000} if profile.response_format == "opus" else SPEECH_RATES,
+            "qwen": {8000, 12000, 16000, 24000, 48000} if profile.response_format == "opus" else SPEECH_RATES,
             "minimax": MINIMAX_RATES, "bailian_minimax": MINIMAX_RATES,
             "volcengine": {48000} if profile.response_format == "opus" else {8000, 16000, 22050, 24000, 32000, 44100, 48000},
             "siliconflow": {"mp3": {32000, 44100}, "opus": {48000}, "wav": {8000, 16000, 24000, 32000, 44100}, "pcm": {8000, 16000, 24000, 32000, 44100}}.get(profile.response_format, set()),
         }
         properties["sample_rate"]["enum"] = sorted(rates[profile.kind])
     if "language_boost" in properties:
-        properties["language_boost"]["enum"] = MINIMAX_LANGUAGES
+        properties["language_boost"]["enum"] = sorted(set(MINIMAX_LANGUAGES) - (
+            OLD_MODEL_LANGUAGES if profile.kind == "minimax" and profile.model.startswith(("speech-01-", "speech-02-")) else set()
+        ))
+    if "voice_language" in properties:
+        properties["voice_language"]["enum"] = ["", *sorted(VOICE_LANGUAGES | (
+            {"other"} if profile.model == "qwen-audio-3.1-tts-flash" else set()
+        ))]
+    if "reference_source" in properties:
+        properties["reference_source"]["enum"] = ["server", "file"] if profile.kind == "gpt_sovits" else ["url", "file"]
+    if profile.kind == "minimax":
+        quality = profile.options.minimax_transport == "http" and profile.model.startswith(("speech-2.8-", "speech-2.6-"))
+        properties["minimax_normalization"]["enum"] = ["", "basic", "quality"] if quality else ["", "basic"]
+        if profile.options.minimax_transport != "http":
+            properties["minimax_output"]["enum"] = ["hex"]
+        if profile.response_format.startswith("pcmu_"):
+            properties["sample_rate"]["enum"] = [8000]
+            properties["minimax_channel"]["enum"] = [1]
     if "breeze_language_code" in properties:
         properties["breeze_language_code"]["enum"] = ["", *sorted(BREEZE_LANGUAGES)]
     if "minimax_emotion" in properties:
@@ -177,12 +202,16 @@ def apply_parameters(profile: Profile, parameters: Dict[str, Any]) -> Profile:
         spec = schema["properties"][key]
         if "enum" in spec and value not in spec["enum"]:
             raise APIError("INVALID_PARAMETER", f"{key} 请使用描述中的枚举值")
+    if "hot_fix" in schema["properties"] and set(prospective.options.hot_fix) - {"pronunciation", "replace"}:
+        raise APIError("INVALID_PARAMETER", "hot_fix 请使用 pronunciation 和 replace 字段")
+    if prospective.kind == "volcengine" and prospective.options.enable_ssml and prospective.options.latex_read:
+        raise APIError("INVALID_PARAMETER", "SSML 与 LaTeX 请分别启用")
     return prospective
 
 
 def public_profile(profile: Profile) -> Dict[str, Any]:
     capability = tone_capability(profile.kind, profile.model, profile.voice, profile.options.resource_id)
-    tones = profile.tone.allowed or (capability["tones"] if capability else [])
+    tones = (profile.tone.allowed or capability["tones"]) if capability else []
     return {"provider_id": profile.id, "provider_name": profile.name, "kind": profile.kind,
             "model_id": profile.model, "voice_id": profile.voice,
             "tone_supported": capability is not None, "tone_mode": profile.tone.mode, "default_tone": profile.tone.emotion,

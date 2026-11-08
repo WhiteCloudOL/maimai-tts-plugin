@@ -208,7 +208,7 @@ parameter_properties = description["parameters"]["properties"]
 | `events` | Breeze 的实际接口与语种事件表 |
 | `parameters` | 当前组合的参数 JSON Schema |
 
-参数描述包含类型、枚举、取值范围、当前默认值及字段说明。字段集同时考虑模型、音色、资源、返回格式和已保存传输方式。
+参数描述包含类型、枚举、取值范围、当前默认值及字段说明。字段集同时考虑模型、音色、资源、返回格式和传输方式。格式、资源、参考音频来源或传输方式调整后，再次查询可取得对应的字段集。
 
 `parameters` 入参可预先应用格式或资源等调整，再查询对应的参数描述：
 
@@ -228,12 +228,16 @@ description = await self.call_tts(
 | OpenAI / OpenAI 兼容 | `speed`、`response_format`、`custom_voice` |
 | 千问 | `language`、`optimize_instructions`；Qwen-Audio 模型提供采样率、语速、音量、音调、种子等参数 |
 | CosyVoice | `speed`、`sample_rate`、`volume`、`pitch`，以及对应模型和协议的种子、语言、SSML 与 Opus 码率 |
-| MiniMax / 百炼 MiniMax | `minimax_vol`、`minimax_pitch`、`minimax_emotion`、`minimax_channel`、`sample_rate`、音色混合和声音效果 |
+| MiniMax / 百炼 MiniMax | `minimax_vol`、`minimax_pitch`、`minimax_emotion`、`minimax_channel`、`sample_rate`、音色混合和声音效果；MiniMax 原生接口还提供传输方式、返回方式与文本归一化 |
 | 火山引擎 | `resource_id`、`volc_loudness_rate`、`volc_pitch`、`volc_emotion`、`volc_instruction_mode` 等模型专属参数 |
 | 硅基流动 | `speed`、`sample_rate`、`gain` |
-| Breeze | 在线模型的语速、音量、语言、引导强度和声音相似度；自托管模型的引导强度 |
+| Breeze | 在线模型的语速、音量、语言、引导强度和声音相似度；自托管模型的引导强度、随机种子、声音来源和参考录音 |
 | MiMo | `response_format`；表达通过风格控制设置 |
 | GPT-SoVITS | `speed`、文本与提示语言、分段方法、`top_k`、`top_p`、`temperature` |
+
+参考录音按来源配置：`reference_source="url"` 搭配 `reference_url`；`reference_source="file"` 搭配已导入插件录音目录中的相对路径 `reference_file`；GPT-SoVITS 的 `reference_source="server"` 搭配 TTS 服务端路径 `reference_path`。Breeze 参考声音使用 `breeze_mode="reference"` 和准确的 `reference_text`；硅基流动使用 `reference_enabled=True` 与录音文字稿。MiMo voiceclone 提供对应的参考录音字段。
+
+Breeze 自托管的声音来源可选 `reference`、`design`、`plain`，风格通过 `control.style` 或自动模式设置，`seed` 控制随机种子。MiniMax 的 `minimax_normalization="quality"` 对应 Speech 2.6 / 2.8 的 HTTP 模式，流式模式提供 `basic` 归一化。各组合的枚举和范围以当次 `tts_describe` 为准。
 
 ### 4.2 `tts_validate`
 
@@ -252,6 +256,8 @@ validated = await self.call_tts(
 ```
 
 该接口完成本地参数解析与能力校验，返回配置 `revision`、实际 `targets`、`output` 和 `llm_required`。`targets` 中的参数默认值体现本次临时覆盖。自动表达的最终决定由后续分析或合成请求完成。
+
+整体路由逐一校验首选与备选目标。服务商专属参数配合 `provider_id` 与 `model_id` 使用，可让调用精确选择该平台的模型能力。
 
 ## 5. 高级调用
 
@@ -375,13 +381,14 @@ result = await self.call_tts(
         "provider_id": analysis["provider_id"],
         "model_id": analysis["model_id"],
         "voice_id": analysis["voice_id"],
+        "parameters": analysis["parameters"],
         "control": analysis["control"],
         "output": "audio",
     },
 )
 ```
 
-返回的 `control` 可直接用于高级调用。`text` 保留本次输入，`display_text` 提供聊天展示正文，`llm_used` 表示分析调用情况，`control_status` 标识本次表达来源。原文已有控制时使用原有表达；原文朗读型组合返回原文合成策略。
+返回的 `control`、目标选择器和 `parameters` 可一起用于高级调用。`parameters` 保留本次传入的参数覆盖，使模型能力、资源和格式与分析时保持一致。`text` 保留本次输入，`display_text` 提供聊天展示正文，`llm_used` 表示分析调用情况，`control_status` 标识本次表达来源。原文已有控制时使用原有表达；原文朗读型组合返回原文合成策略。
 
 分析请求复用平台专属提示词。固定规则与参数能力放在 system 前缀，正文、表达偏好和重试反馈放在后续消息，便于复用 LLM 前缀缓存。
 
@@ -471,6 +478,8 @@ job = await self.call_tts("tts_cancel_job", job_id=job_id)
 
 任务保留时长从完成时开始计时，沿用「插件 API」中的结果保留时间。任务历史最多保留 128 项。相同 `request_id` 与相同参数复用同一任务和结果；新的一次业务操作使用新的编号。
 
+语气分析、合成、转码及发送合计使用 540 秒执行预算。调用方的 RPC 等待结束后，任务继续执行；以原 `request_id` 重试可等待同一任务，也可通过 `job_id` 查询。`tts_cancel_job` 显式取消插件任务，取消结果参与请求编号去重。已交给宿主的消息由宿主与适配器执行投递，发送回执提供 `message_id`。
+
 ## 9. 开关、容量与缓存
 
 「通用设置 → 插件 API」提供：
@@ -480,17 +489,21 @@ job = await self.call_tts("tts_cancel_job", job_id=job_id)
 | 启用插件 API | 开启 | 控制公开业务接口的调用 |
 | 音频与任务结果保留 | 600 秒 | 范围 30–86400 秒 |
 | API 音频容量 | 64 MiB | 范围 1–512 MiB，按最近访问顺序回收 |
-| API 活动任务上限 | 8 | 范围 1–32，合成并发沿用插件运行设置 |
+| API 活动任务上限 | 8 | 范围 1–32，覆盖语调分析、合成、转码和发送，合成并发沿用插件运行设置 |
 
 音频引用池最多保存 256 项。引用到期、容量回收或插件重载后，调用方通过新合成请求获取新的 `audio_id`。关闭 API 时，活动 API 任务进入取消流程；`tts_status` 始终提供开关和运行概况。
 
 合成缓存按实际服务商身份、模型、音色、正文和合成参数区分，转码缓存按源音频、编码版本及整数秒选项区分。不同 `request_id` 的相同语音内容可复用合成缓存。`refresh_cache=True` 用于主动重新合成。
+
+每次任务采用接收时的路由、平台参数和语音辅助 LLM 配置快照。开关与音频容量按最新设置生效。参考文件、远端参考录音和 GPT-SoVITS 等动态来源按现有平台规则逐次读取；并发的相同可缓存合成共享平台请求，各任务分别维护取消状态。
 
 ## 10. 请求编号与发送回执
 
 建议调用方使用带插件前缀的业务编号，例如 `weather:group123:morning:20261108`。相同编号配合相同参数返回同一执行结果，发送结果也参与去重。参数调整使用新的编号。
 
 `request_id` 的去重记录与任务结果共用有效期和历史容量。调用方可持有 `job_id` 查询最终结果，面向新的业务播报生成新的编号。
+
+`tts_send_audio` 优先复用已记录的发送结果，音频引用回收后仍可在任务记录保留期间取回原回执。`refresh_cache=True` 与新的请求编号搭配，产生一次新的合成；同一编号的重复调用继续返回该次执行结果。
 
 ## 11. 错误码与处理
 
@@ -504,6 +517,7 @@ job = await self.call_tts("tts_cancel_job", job_id=job_id)
 | `REQUEST_CONFLICT` | 为参数调整分配新的 `request_id` |
 | `BUSY` | 等待活动任务完成后提交 |
 | `LLM_ERROR` | 检查语音辅助 LLM 的任务配置与调用日志 |
+| `TIMEOUT` | 调整语音辅助 LLM 的超时、重试次数与平台请求预算，使任务在 540 秒内完成 |
 | `TTS_ERROR` | 按平台错误信息检查模型、音色、资源和平台额度 |
 | `SEND_ERROR` | 检查聊天流与适配器的发送回执 |
 | `AUDIO_CAPACITY` | 调整 API 音频容量后重新合成 |

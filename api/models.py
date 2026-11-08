@@ -7,6 +7,7 @@ from ..domain.models import Model, TTSOperationError
 
 
 API_VERSION = "1"
+API_TIMEOUT_SECONDS = 540
 
 
 class APIError(TTSOperationError):
@@ -21,7 +22,7 @@ class Control(Model):
     """单次语音的表达策略；自动模式使用偏好，手动模式使用显式控制。"""
 
     mode: Literal["auto", "manual", "off"] = "manual"
-    tone: Optional[str] = None
+    tone: Optional[str] = Field(default=None, min_length=1, max_length=40)
     style: str = Field(default="", max_length=200)
     style_hint: str = Field(default="", max_length=500)
     events: List[Dict[str, str]] = Field(default_factory=list, max_length=3)
@@ -75,3 +76,38 @@ class AudioSend(Model):
     stream_id: str = Field(min_length=1, max_length=200)
     keep_text: bool = False
     request_id: str = Field(default="", max_length=128)
+
+
+class TargetQuery(Model):
+    """按公开目录选择服务商与模型的查询参数。"""
+
+    provider_id: str = Field(default="", max_length=64)
+    model_id: str = Field(default="", max_length=200)
+
+
+class DescriptionQuery(TargetQuery):
+    """查询音色能力前应用单次参数覆盖。"""
+
+    voice_id: str = Field(default="", max_length=500)
+    parameters: Dict[str, Any] = Field(default_factory=dict, max_length=64)
+
+
+class VoicesQuery(TargetQuery):
+    """选择音色目录来源及账号目录刷新策略。"""
+
+    source: Literal["saved", "preset", "account"] = "saved"
+    refresh: bool = False
+
+
+class AudioRead(Model):
+    """以整数偏移和分块大小读取音频引用。"""
+
+    audio_id: str = Field(min_length=1, max_length=100)
+    offset: int = Field(default=0, ge=0, strict=True)
+    limit: int = Field(default=65536, ge=1, le=262144, strict=True)
+
+
+class JobQuery(Model):
+    """按提交结果中的任务编号查询或取消任务。"""
+
+    job_id: str = Field(min_length=1, max_length=100)

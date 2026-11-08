@@ -89,7 +89,7 @@ class MessagingMixin:
             return await self._tts_command_failure(stream_id, "请先启用麦麦TTS语音插件")
         if not self.features.command_enabled:
             self.service.log.debug("跳过语音命令", reason="command_disabled", stream_id=stream_id)
-            return await self._tts_command_failure(stream_id, "请在语音工作台的“回复行为”中启用聊天命令")
+            return await self._tts_command_failure(stream_id, "请在语音工作台的“通用设置”中启用聊天命令")
         if not stream_id:
             self.service.log.error("语音命令缺少聊天流")
             return False, "命令上下文缺少聊天流 ID", True

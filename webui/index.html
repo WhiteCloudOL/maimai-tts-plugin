@@ -2253,8 +2253,10 @@
         type = "text",
         wide = false,
         list = "",
+        bounds = null,
       ) {
-        return `<div class="field ${wide ? "wide" : ""}"><label for="f-${state.formScope || ""}${h(key)}">${h(label)}</label><input class="maibot-input input ${type === "password" || key.includes("url") || key === "endpoint" || key === "model" ? "mono" : ""}" id="f-${state.formScope || ""}${h(key)}" data-field="${h(key)}" type="${type}" value="${h(value)}" ${list ? `list="${h(list)}"` : ""} ${type === "number" ? 'step="any"' : ""} autocomplete="off" maxlength="${key === "api_key" ? 4000 : key === "name" ? 80 : key.includes("url") || key === "endpoint" ? 2000 : 500}" ${key === "api_key" ? 'placeholder="' + (current()?.has_api_key ? "已保存 · 留空保留原密钥" : "填写 API Key / Access Token") + '"' : ""}>${hint ? `<small>${h(hint)}</small>` : ""}</div>`;
+        const numberBounds = type === "number" ? (bounds ? `min="${bounds.min}" max="${bounds.max}" step="${bounds.step ?? 1}"` : 'step="any"') : "";
+        return `<div class="field ${wide ? "wide" : ""}"><label for="f-${state.formScope || ""}${h(key)}">${h(label)}</label><input class="maibot-input input ${type === "password" || key.includes("url") || key === "endpoint" || key === "model" ? "mono" : ""}" id="f-${state.formScope || ""}${h(key)}" data-field="${h(key)}" type="${type}" value="${h(value)}" ${list ? `list="${h(list)}"` : ""} ${numberBounds} autocomplete="off" maxlength="${key === "api_key" ? 4000 : key === "name" ? 80 : key.includes("url") || key === "endpoint" ? 2000 : 500}" ${key === "api_key" ? 'placeholder="' + (current()?.has_api_key ? "已保存 · 留空保留原密钥" : "填写 API Key / Access Token") + '"' : ""}>${hint ? `<small>${h(hint)}</small>` : ""}</div>`;
       }
       function selectField(key, label, value, options, hint = "") {
         return `<div class="field"><label for="f-${state.formScope || ""}${h(key)}">${h(label)}</label><select class="maibot-input input" id="f-${state.formScope || ""}${h(key)}" data-field="${h(key)}">${options
@@ -4990,9 +4992,9 @@
         const api = card("插件 API", "供其他 MaiBot 插件查询、合成和发送语音。", `
           ${toggleField("feature.api_enabled", "启用插件 API", f.api_enabled, "通过 MaiBot 插件 SDK 调用，支持自动语气和高级模型参数。")}
           <div class="form-grid feature-fields">
-            ${field("feature.api_audio_ttl_seconds", "音频与任务结果保留（秒）", f.api_audio_ttl_seconds, "30–86400，默认 600 秒。", "number")}
-            ${field("feature.api_audio_max_size_mb", "API 音频容量（MiB）", f.api_audio_max_size_mb, "1–512，按最近访问顺序回收音频。", "number")}
-            ${field("feature.api_max_jobs", "API 活动任务上限", f.api_max_jobs, "1–32；合成并发沿用运行设置。", "number")}
+            ${field("feature.api_audio_ttl_seconds", "音频与任务结果保留（秒）", f.api_audio_ttl_seconds, "30–86400，默认 600 秒。", "number", false, "", {min: 30, max: 86400})}
+            ${field("feature.api_audio_max_size_mb", "API 音频容量（MiB）", f.api_audio_max_size_mb, "1–512，按最近访问顺序回收音频。", "number", false, "", {min: 1, max: 512})}
+            ${field("feature.api_max_jobs", "API 活动任务上限", f.api_max_jobs, "1–32；覆盖语调分析、合成、转码和发送，合成并发沿用运行设置。", "number", false, "", {min: 1, max: 32})}
           </div><small>对接文档：插件目录 docs/plugin-api.md · API 版本 1</small>`);
         return `${promptSettingsView()}<div class="features-grid"><div class="feature-column">${output}${tools}${api}</div><div class="feature-column">${probability}${helper}</div></div>`;
       }

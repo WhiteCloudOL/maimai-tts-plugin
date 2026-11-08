@@ -107,9 +107,8 @@ class APIJobs:
                 self.requests.pop(job.request_id, None)
                 del self.jobs[job_id]
 
-    def start(
-        self, request_id: str, fingerprint: str, operation: Callable[[str], Awaitable[Dict[str, Any]]], *, limit: int, ttl: int,
-    ) -> APIJob:
+    def find(self, request_id: str, fingerprint: str) -> Optional[APIJob]:
+        """按编号读取执行记录，并校验本次参数与记录中的指纹一致。"""
         self.expire()
         if self.closed:
             raise APIError("API_RELOADING", "插件正在重新加载，请使用新的调用")
@@ -118,6 +117,14 @@ class APIJobs:
             if job.fingerprint != fingerprint:
                 raise APIError("REQUEST_CONFLICT", "相同 request_id 请传入相同参数")
             return job
+        return None
+
+    def start(
+        self, request_id: str, fingerprint: str, operation: Callable[[str], Awaitable[Dict[str, Any]]], *, limit: int, ttl: int,
+    ) -> APIJob:
+        existing = self.find(request_id, fingerprint)
+        if existing is not None:
+            return existing
         if sum(job.state == "running" for job in self.jobs.values()) >= limit:
             raise APIError("BUSY", "API 任务槽位已满，请稍后提交")
         if len(self.jobs) >= 128:
@@ -143,6 +150,16 @@ class APIJobs:
                 job.expires = monotonic() + ttl
 
         job.task = asyncio.create_task(run(), name="tts-api-" + job.job_id)
+
+        def cancelled(task: asyncio.Task) -> None:
+            # create_task 后立即取消时，run 尚未进入；完成回调负责释放这类任务的槽位。
+            if task.cancelled() and job.result is None:
+                job.state = "cancelled"
+                job.result = {"ok": False, "request_id": request_id,
+                              "error": {"code": "CANCELLED", "message": "任务已取消"}}
+                job.expires = monotonic() + ttl
+
+        job.task.add_done_callback(cancelled)
         return job
 
     async def wait(self, job: APIJob) -> Dict[str, Any]:

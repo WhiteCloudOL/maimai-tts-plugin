@@ -1,5 +1,6 @@
 """公开 SDK API 的目录、参数、语气、投递、幂等、任务和资源生命周期。"""
 
+from aiohttp import web
 from maibot_sdk.context import PluginContext
 from unittest.mock import AsyncMock
 
@@ -12,9 +13,10 @@ import pytest
 
 from maimai_tts_contract.api.parameters import apply_parameters, parameter_schema
 from maimai_tts_contract.api.endpoints import PluginAPIMixin
-from maimai_tts_contract.domain.models import Audio, Features, Profile, RouteTarget, StudioConfig
+from maimai_tts_contract.domain.bailian import QWEN_AUDIO_MODELS
+from maimai_tts_contract.domain.models import Audio, Features, Profile, RouteTarget, StudioConfig, Voice
 from maimai_tts_contract.api.models import APIError
-from maimai_tts_contract.infrastructure.api_runtime import APIAudioStore
+from maimai_tts_contract.infrastructure.api_runtime import APIAudioStore, APIJobs
 from maimai_tts_contract.services.plugin_api import PluginAPIService
 from test_prompt_pipeline import CASES, TEXT, PromptBot, profile, tts_endpoint, wav
 
@@ -332,6 +334,7 @@ async def test_model_selection_uses_its_voice_and_skips_llm_for_plain_model(serv
         result = await api.call("simple", text=TEXT, provider_id="openai", model_id="tts-1")
         assert result["ok"], result
         assert calls[0]["model"] == "tts-1" and calls[0]["voice"] == "echo"
+        assert result["data"]["audio"]["allowed_tones"] == []
         bot.ctx.call_capability.assert_not_awaited()
         assert service.store.config.primary.model_id == "gpt-4o-mini-tts"
     finally:
@@ -382,3 +385,273 @@ def test_audio_result_pool_reclaims_entries_by_capacity():
         store.get(first["audio_id"])
     assert store.get(second["audio_id"]).audio == audio
     assert store.size == len(audio.data)
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_task_starts_releases_slot_and_keeps_receipt():
+    jobs = APIJobs()
+    operation = AsyncMock(return_value={"ok": True, "data": {}})
+    try:
+        job = jobs.start("immediate", "same", operation, limit=1, ttl=600)
+        job.task.cancel()
+        await asyncio.gather(job.task, return_exceptions=True)
+        assert job.state == "cancelled" and job.expires > 0
+        assert (await jobs.wait(job))["error"]["code"] == "CANCELLED"
+        assert jobs.start("immediate", "same", operation, limit=1, ttl=600) is job
+        jobs.start("next", "same", operation, limit=1, ttl=600)
+        operation.assert_not_awaited()
+    finally:
+        await jobs.close()
+
+
+@pytest.mark.asyncio
+async def test_send_retry_reuses_receipt_after_audio_eviction(serve, service):
+    api, _, bot = await setup_api(serve, service)
+    try:
+        audio = (await api.call("advanced", text=TEXT))["data"]["audio"]
+        first = await api.send_audio(audio["audio_id"], "test-stream", request_id="send-once")
+        api.audio.clear()
+        again = await api.send_audio(audio["audio_id"], "test-stream", request_id="send-once")
+        assert first["ok"] and again == first
+        conflict = await api.send_audio(audio["audio_id"], "other-stream", request_id="send-once")
+        assert conflict["error"]["code"] == "REQUEST_CONFLICT"
+        assert bot.ctx.send.hybrid.await_count == 1
+    finally:
+        await api.close()
+
+
+def test_qwen_audio_described_parameters_can_all_be_applied():
+    selected = Profile(id="qwen", name="qwen", kind="qwen", base_url="http://127.0.0.1:1",
+                       model="qwen-audio-3.1-tts-flash", voice="Cherry", response_format="wav")
+    selected = selected.for_model(selected.model).with_selected_voice()
+    defaults = {key: spec["default"] for key, spec in parameter_schema(selected)["properties"].items()}
+    assert apply_parameters(selected, defaults).options.sample_rate == 24000
+    changed = apply_parameters(selected, {"response_format": "opus", "sample_rate": 16000, "opus_bit_rate": 48})
+    assert changed.options.opus_bit_rate == 48
+
+
+def test_schema_matches_transport_and_reference_constraints():
+    selected = profile("minimax", "http://127.0.0.1:1").for_model("speech-2.6-hd").with_selected_voice()
+    assert apply_parameters(selected, {"minimax_normalization": "quality"}).options.minimax_normalization == "quality"
+    streaming = apply_parameters(selected, {"minimax_transport": "sse"})
+    assert parameter_schema(streaming)["properties"]["minimax_normalization"]["enum"] == ["", "basic"]
+    assert parameter_schema(streaming)["properties"]["minimax_output"]["enum"] == ["hex"]
+    reference = profile("siliconflow", "http://127.0.0.1:1").for_model("FunAudioLLM/CosyVoice2-0.5B").with_selected_voice()
+    assert parameter_schema(reference)["properties"]["reference_source"]["enum"] == ["url", "file"]
+
+
+@pytest.mark.asyncio
+async def test_adaptive_metadata_reports_native_emotion_sent_to_platform(serve, service):
+    api, calls, _ = await setup_api(serve, service, "minimax")
+    try:
+        result = await api.call("simple", text=TEXT)
+        assert result["ok"], result
+        assert result["data"]["audio"]["parameters"]["minimax_emotion"] == calls[0]["voice_setting"]["emotion"] == "happy"
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_waiter_timeout_keeps_shared_send_and_reuses_final_receipt(serve, service):
+    api, calls, bot = await setup_api(serve, service)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def sending(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return {"sent": True, "message_id": "voice-001"}
+
+    bot.ctx.send.hybrid.side_effect = sending
+    request = dict(text=TEXT, output="send", stream_id="test-stream", request_id="timeout-send")
+    waiting = asyncio.create_task(api.call("simple", **request))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        retry = asyncio.create_task(api.call("simple", **request))
+        release.set()
+        result = await retry
+        assert result["ok"] and result["data"]["send"]["message_id"] == "voice-001"
+        assert bot.ctx.send.hybrid.await_count == len(calls) == 1
+    finally:
+        release.set()
+        await api.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation,kwargs", [
+    ("get_audio", {"audio_id": []}), ("get_audio", {"audio_id": "a", "offset": True}),
+    ("get_job", {"job_id": []}), ("describe", {"provider_id": []}),
+    ("voices", {"source": "unknown"}), ("advanced", {"text": TEXT, "operation": "status"}),
+    ("advanced", {"text": TEXT, "parameters": {"speed": b"1.1"}}),
+    ("advanced", {"text": TEXT, "parameters": {"speed": float("nan")}}),
+])
+async def test_invalid_queries_return_parameter_errors(serve, service, operation, kwargs):
+    api, calls, bot = await setup_api(serve, service)
+    try:
+        result = await api.call(operation, **kwargs)
+        assert result["error"]["code"] == "INVALID_PARAMETER"
+        assert calls == []
+        bot.ctx.call_capability.assert_not_awaited()
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_one_of_concurrent_syntheses_preserves_other_cache_waiter(serve, service):
+    api, calls, _ = await setup_api(serve, service)
+    entered, release = asyncio.Event(), asyncio.Event()
+    upstream = service.execute
+
+    async def slow(operation):
+        entered.set()
+        await release.wait()
+        return await upstream(operation)
+
+    service.execute = slow
+    try:
+        first = await api.call("submit", text=TEXT, request_id="cancel-one")
+        second = await api.call("submit", text=TEXT, request_id="keep-one")
+        await asyncio.wait_for(entered.wait(), 2)
+        # 两个调用已进入共享合成；取消一个任务只释放自己的等待者。
+        await asyncio.sleep(0)
+        await api.call("cancel_job", job_id=first["data"]["job_id"])
+        release.set()
+        result = await api.jobs.wait(api.jobs.get(second["data"]["job_id"]))
+        assert result["ok"] and len(calls) == 1
+        assert result["data"]["audio"]["cache"]["synthesis"] == "shared"
+    finally:
+        release.set()
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_analysis_keeps_parameter_context_for_advanced(serve, service):
+    api, calls, bot = await setup_api(serve, service, "minimax")
+    try:
+        analysis = (await api.call("analyze", text=TEXT, parameters={"speed": 1.3}))["data"]
+        assert analysis["parameters"] == {"speed": 1.3}
+        result = await api.call("advanced", text=analysis["text"], control=analysis["control"], parameters=analysis["parameters"])
+        assert result["ok"] and calls[0]["voice_setting"]["speed"] == 1.3
+        assert bot.ctx.call_capability.await_count == 1
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_api_deadline_releases_slot_and_records_timeout(serve, service, monkeypatch):
+    api, calls, bot = await setup_api(serve, service)
+    monkeypatch.setattr("maimai_tts_contract.services.plugin_api.API_TIMEOUT_SECONDS", 0.01)
+
+    async def waiting(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    bot.ctx.call_capability.side_effect = waiting
+    try:
+        result = await api.call("analyze", text=TEXT, request_id="deadline")
+        assert result["error"]["code"] == "TIMEOUT" and calls == []
+        job = api.jobs.jobs[api.jobs.requests["deadline"]]
+        assert job.state == "error" and job.expires > 0
+        assert (await api.call("status"))["data"]["running_jobs"] == 0
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", sorted(QWEN_AUDIO_MODELS))
+async def test_qwen_audio_parameters_and_auto_instruction_reach_http(serve, service, model):
+    api, calls, _ = await setup_api(serve, service, "qwen")
+    root = service.store.config.profiles[0]
+    selected = Profile(id="qwen", name="qwen", kind="qwen", base_url=root.base_url, api_key=root.api_key,
+                       model=model, voice="Cherry", response_format="wav")
+    service.store._config = StudioConfig(profiles=[selected], primary=RouteTarget(provider_id="qwen", model_id=model))
+    try:
+        result = await api.call("advanced", text=TEXT, control={"mode": "auto"},
+                                parameters={"sample_rate": 16000, "speed": 1.3, "volume": 35, "pitch": 1.1,
+                                            "seed": 17, "voice_language": "zh"})
+        assert result["ok"], result
+        inputs = calls[0]["input"]
+        assert inputs["sample_rate"] == 16000 and inputs["seed"] == 17 and inputs["rate"] == 1.3
+        assert inputs["volume"] == 35 and inputs["pitch"] == 1.1 and inputs["language_hints"] == ["zh"]
+        assert inputs["instruction"] == "轻柔"
+    finally:
+        await api.close()
+
+
+def test_qwen_http_schema_contains_consumed_fields_and_opus_rates_are_exact():
+    selected = profile("qwen", "http://127.0.0.1:1").for_model(CASES["qwen"][0]).with_selected_voice()
+    assert set(parameter_schema(selected)["properties"]) == {"language", "optimize_instructions", "response_format"}
+    cosy = profile("cosyvoice", "http://127.0.0.1:1").for_model(CASES["cosyvoice"][0]).with_selected_voice()
+    opus = apply_parameters(cosy, {"response_format": "opus", "sample_rate": 16000})
+    assert parameter_schema(opus)["properties"]["sample_rate"]["enum"] == [8000, 12000, 16000, 24000, 48000]
+    with pytest.raises(APIError):
+        apply_parameters(opus, {"sample_rate": 22050})
+
+
+@pytest.mark.asyncio
+async def test_breeze_local_seed_and_style_reach_multipart(serve, service):
+    calls = []
+
+    async def local(request):
+        calls.append(dict(await request.post()))
+        return web.Response(body=b"\0" * 4800, content_type="audio/pcm", headers={"X-Sample-Rate": "24000"})
+
+    selected = Profile(id="local", name="local", kind="breeze", base_url=await serve(local), model="breeze-tts-2",
+                       response_format="wav", options={"breeze_mode": "plain"})
+    service.store._config = StudioConfig(profiles=[selected], primary=RouteTarget(provider_id="local", model_id=selected.model))
+    bot = PromptBot(service)
+    api = PluginAPIService(service.store, service, bot.ctx, bot._send_tts_message, lambda: True)
+    try:
+        result = await api.call("advanced", text=TEXT, control={"style": "轻柔"},
+                                parameters={"seed": 17, "breeze_mode": "design", "breeze_guidance_scale": 2})
+        assert result["ok"], result
+        assert calls[0] == {"text": TEXT, "cfg_scale": "2.0", "seed": "17", "instruction": "轻柔"}
+        assert result["data"]["audio"]["parameters"]["seed"] == 17
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_refresh_cache_and_request_id_have_independent_scopes(serve, service):
+    api, calls, _ = await setup_api(serve, service)
+    try:
+        first = await api.call("advanced", text=TEXT, request_id="original")
+        hit = await api.call("advanced", text=TEXT, request_id="reuse")
+        fresh = await api.call("advanced", text=TEXT, request_id="refresh", refresh_cache=True)
+        repeat = await api.call("advanced", text=TEXT, request_id="refresh", refresh_cache=True)
+        assert first["ok"] and hit["ok"] and fresh["ok"] and repeat == fresh
+        assert len(calls) == 2 and hit["data"]["audio"]["cache"]["synthesis"] == "hit"
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,parameters,control", [
+    ("volcengine", {"enable_ssml": True, "latex_read": True}, {"mode": "auto"}),
+    ("volcengine", {"enable_ssml": True, "volc_instruction_mode": "cot"}, {"mode": "auto"}),
+    ("cosyvoice", {"hot_fix": {"unknown": []}}, {"mode": "auto"}),
+])
+async def test_incompatible_parameter_combinations_are_rejected_before_llm(serve, service, kind, parameters, control):
+    api, calls, bot = await setup_api(serve, service, kind)
+    try:
+        result = await api.call("validate", text=TEXT, parameters=parameters, control=control)
+        assert result["error"]["code"] == "INVALID_PARAMETER"
+        assert calls == []
+        bot.ctx.call_capability.assert_not_awaited()
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_voice_catalog_is_available_while_default_voice_is_training(serve, service):
+    api, calls, bot = await setup_api(serve, service)
+    service.store._config.profiles[0].voices = [Voice(id="alloy", name="克隆中", clone_state="training")]
+    try:
+        result = await api.call("voices", source="saved")
+        assert result["ok"] and result["data"]["voices"][0]["state"] == "training"
+        result = await api.call("simple", text=TEXT)
+        assert not result["ok"] and calls == []
+        bot.ctx.call_capability.assert_not_awaited()
+    finally:
+        await api.close()
