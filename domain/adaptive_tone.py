@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from html import escape
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import json
 
@@ -28,6 +28,14 @@ class ToneDecision:
 
 
 ToneAdapter = Callable[[Profile], Awaitable[Optional[ToneDecision]]]
+
+
+def adaptive_feedback(language: str, error: str) -> str:
+    return {
+        "zh": "上次输出校验失败：{error}。请按输出协议和允许列表重新返回 JSON，只为前面的正文选择表达。",
+        "en": "The previous output failed validation: {error}. Return corrected JSON following the protocol and allowed IDs for the preceding dialogue.",
+        "ja": "前回の出力は検証に失敗した：{error}。出力規則と許可IDに従い、前の本文に対するJSONを返す。",
+    }[language].format(error=error)
 
 
 def breeze_event_options(profile: Profile) -> Dict[str, List[str]]:
@@ -98,7 +106,7 @@ def adaptive_prompt(
     tone_meanings: str = "",
 ) -> str:
     free_direction = free_direction or breeze
-    example = json.dumps({"tone": tones[0], **({"direction": ""} if free_direction else {})}, ensure_ascii=False)
+    example = json.dumps({"tone": tones[0]}, ensure_ascii=False)
     prompts: Dict[str, str] = DEFAULT_PROMPTS["adaptive"]
     directions = {
         "zh": "此模型支持自由语气，direction 可选填不超过 {limit} 字符的单行说话方式，与正文语言一致，不含方括号；填写时替代 tone 的表达，无需描述时留空。{count}",
@@ -114,6 +122,12 @@ def adaptive_prompt(
         "zh": "上次输出校验失败：{error}。请按上述示例和允许列表重新输出。",
         "en": "The previous output failed validation: {error}. Return a corrected object following the example and allowed IDs above.",
         "ja": "前回の出力は検証に失敗した：{error}。上記の例と許可された ID に従って修正したオブジェクトを返す。",
+    }
+    # 输出协议先于路由配置，保持同类能力的提示前缀稳定；正文和重试反馈由调用方单独发送。
+    output_rules = {
+        "zh": "只返回一个标准 JSON 对象，使用双引号；禁止 Markdown 代码块、解释、正文、额外字段或 JSON 后缀。控制均可省略，默认输出 {}。tone 可省略或为允许列表中的 ID 字符串；不要输出中文名称或翻译 ID。",
+        "en": "Return exactly one standard JSON object with double quotes: no Markdown fences, explanation, dialogue, extra keys or trailing content. Controls are optional; {} uses defaults. Omit tone or use an exact allowed ID string, never a translated name.",
+        "ja": "二重引用符を使った標準JSONオブジェクト一つだけを返す。Markdown囲み、説明、台詞、追加フィールド、後続の文字は禁止。制御は任意で、{}なら既定。toneは省略するか許可IDの文字列とし、表示名や翻訳は使わない。",
     }
     if breeze:
         expressive = DEFAULT_PROMPTS["breeze_adaptive"]
@@ -133,12 +147,26 @@ def adaptive_prompt(
             selected, {"allowed_tones": json.dumps(tones), "direction_limit": "200", "event_tags": table}
         )
         formats = {
-            "zh": '推荐按需添加控制，均可省略。仅输出 JSON，如 {"direction":"说话方式","events":[{"before":"原文唯一短语","tag":"表内标签"}]}；无需额外控制时输出 {}。direction 单行同语言1–200字；events 最多3处，每处一个同语言表内事件，before须原样唯一且最多80字。tone填写时须为允许的ID。',
-            "en": 'Controls are optional. Return JSON, e.g. {"direction":"delivery","events":[{"before":"unique exact phrase","tag":"listed tag"}]}, or {} for defaults. direction: single-line 1–200 chars in the text language. Max 3 events, one per unique unchanged 1–80-char anchor, from one tag language. Optional tone must be an allowed ID.',
-            "ja": '制御は任意。JSON例：{"direction":"話し方","events":[{"before":"原文の一意な句","tag":"表のタグ"}]}、不要なら{}。directionは同言語の一行1–200文字。eventsは最大3個、原文の一意な1–80文字の句に一つずつ、同じ言語の表から選ぶ。toneを使う場合は許可IDのみ。',
+            "zh": "仅允许 tone、direction、events。direction 是与正文同语言、不含方括号的单行字符串，最多200字符；events 是最多3项的数组，每项只能有 before 和 tag 两个字符串。before 须为实际正文中原样且唯一的1–80字符短语；tag 须完整照抄下表标签，全部事件来自同一种语言表，同一位置最多一个事件。禁止输出改写后的正文或虚构标签。",
+            "en": "Only tone, direction and events are allowed. direction: a single-line string in the dialogue language, no square brackets, max 200 characters. events: an array of at most 3 objects, each with only before and tag strings. before must be an exact unique 1–80-character phrase in the actual dialogue. Copy tag exactly from one listed language; one event per position. Never return rewritten dialogue or invented tags.",
+            "ja": "許可フィールドはtone、direction、eventsのみ。directionは本文と同言語の一行文字列、角括弧なし、最大200文字。eventsは最大3要素の配列で、各要素はbeforeとtagの文字列だけ。beforeは実際の本文に原形で一度だけ現れる1–80文字の句。tagは同じ言語の表から完全に写し、一か所一つ。改変本文や架空のタグは返さない。",
         }
+        sample_text, sample_direction = {
+            "zh": ("你终于来了。我们一起面对。", "轻柔温暖"),
+            "en": ("You are here. We will face it together.", "Warmly"),
+            "ja": ("来てくれたんだね。一緒に向き合おう。", "優しく"),
+        }[language]
+        sample: Dict[str, Any] = {"direction": sample_direction}
+        if event_options:
+            sample["events"] = [{"before": sample_text.split("。" if language != "en" else ".")[0],
+                                 "tag": next(tag for values in event_options.values() for tag in values)}]
+        example_label = {"zh": "格式示例（仅演示，不照抄示例台词）：", "en": "Format example (do not copy the sample dialogue): ",
+                         "ja": "書式例（例の台詞は写さない）："}[language]
         parts = [
-            base, data_rules[language], formats[language],
+            output_rules[language], formats[language], data_rules[language],
+            example_label + "input=" + json.dumps(sample_text, ensure_ascii=False)
+            + "; output=" + json.dumps(sample, ensure_ascii=False),
+            base,
             "" if has_variable(selected, "allowed_tones") else "tone: " + json.dumps(tones),
             tone_meanings,
             ("" if has_variable(selected, "event_tags") else table) if table else existing[language],
@@ -149,23 +177,24 @@ def adaptive_prompt(
         "en": " Han characters count as 2; others as 1.",
         "ja": "漢字は2文字、他は1文字として数える。",
     }
-    formats = {
-        "zh": "推荐按需选择语调，并非必须。仅输出一个 JSON 对象，无需额外控制时输出 {}；tone 填写时须精确匹配允许的英文 ID，不翻译 ID、不改写正文、不输出解释。",
-        "en": "Recommend a tone when useful, not mandatory. Return one JSON object, or {} for defaults. If supplied, tone must match an allowed English ID; do not translate IDs, rewrite text or explain.",
-        "ja": "語調は必要に応じた推奨で必須ではない。JSON一つ、不要なら{}で既定を使う。toneを指定する場合は許可された英語IDと完全一致させ、IDの翻訳、本文の書き換え、説明はしない。",
-    }
     selected = template if template is not None else prompts[language]
+    example_direction = {"zh": "轻柔", "en": "Softly", "ja": "優しく"}[language]
+    if weighted:
+        example_direction = example_direction[:max_direction_length // 2]
+    else:
+        example_direction = example_direction[:max_direction_length]
     parts = [
+        output_rules[language],
+        directions[language].format(limit=max_direction_length, count=counts[language] if weighted else "")
+        if free_direction else strict[language],
+        example,
+        json.dumps({"direction": example_direction}, ensure_ascii=False) if free_direction and example_direction else "",
         render_prompt(
             selected,
             {"allowed_tones": json.dumps(tones), "direction_limit": str(max_direction_length if free_direction else 0)},
         ),
-        formats[language],
         "" if has_variable(selected, "allowed_tones") else "tone: " + json.dumps(tones),
         tone_meanings,
-        example,
-        directions[language].format(limit=max_direction_length, count=counts[language] if weighted else "")
-        if free_direction else strict[language],
     ] + ([retries[language].format(error=feedback)] if feedback else [])
     return "\n".join(part for part in parts if part)
 
@@ -182,8 +211,17 @@ def parse_adaptive_tone(
     value = response.strip()
     if value.startswith("```json") and value.endswith("```"):
         value = value[7:-3].strip()
+
+    def unique_fields(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for name, item in pairs:
+            if name in result:
+                raise TTSError("语调 LLM 的 JSON 含重复字段")
+            result[name] = item
+        return result
+
     try:
-        data = json.loads(value)
+        data = json.loads(value, object_pairs_hook=unique_fields)
     except (ValueError, RecursionError):
         raise TTSError("语调 LLM 未返回有效 JSON") from None
     if not isinstance(data, dict) or set(data) - ({"tone", "direction", "events"} if breeze else {"tone", "direction"}):

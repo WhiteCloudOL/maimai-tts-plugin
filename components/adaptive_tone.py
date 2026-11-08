@@ -8,6 +8,7 @@ import json
 
 from ..domain.adaptive_tone import (
     ToneDecision,
+    adaptive_feedback,
     adaptive_prompt,
     breeze_event_options,
     direction_limit,
@@ -76,24 +77,33 @@ class ProbabilityToneAdapter:
         )
         feedback = ""
         attempts = self.features.probability_tone_retries + 1
-        for attempt in range(1, attempts + 1):
-            prompt = adaptive_prompt(
+        # 所有原文共用同一路由的 system 前缀；已有标签的约束和重试原因追加在 user 消息后。
+        prompt = adaptive_prompt(
+            self.features.tone_prompt_language,
+            tones,
+            breeze=profile.kind == "breeze",
+            free_direction=limit > 0,
+            max_direction_length=limit,
+            weighted=profile.kind == "cosyvoice",
+            event_options=breeze_event_options(profile) if profile.kind == "breeze" else {},
+            tone_meanings=tone_choices(tones, profile.tone.labels, profile.tone.directions),
+            template=prompt_template(
+                self.features.prompt_overrides,
+                profile.kind,
+                "adaptive",
                 self.features.tone_prompt_language,
-                tones,
-                breeze=profile.kind == "breeze",
-                free_direction=limit > 0,
-                max_direction_length=limit,
-                feedback=feedback,
-                weighted=profile.kind == "cosyvoice",
-                event_options=events,
-                tone_meanings=tone_choices(tones, profile.tone.labels, profile.tone.directions),
-                template=prompt_template(
-                    self.features.prompt_overrides,
-                    profile.kind,
-                    "adaptive",
-                    self.features.tone_prompt_language,
-                ),
-            )
+            ),
+        )
+        for attempt in range(1, attempts + 1):
+            messages = [{"role": "system", "content": prompt}, {"role": "user", "content": self.text}]
+            if profile.kind == "breeze" and not events:
+                messages.append({"role": "user", "content": {
+                    "zh": "正文已有局部控制标记，保留现有控制，events 必须省略或为空数组。",
+                    "en": "The dialogue already has local controls. Preserve them; omit events or return an empty array.",
+                    "ja": "本文には局所的な制御があるため維持し、eventsは省略するか空配列にする。",
+                }[self.features.tone_prompt_language]})
+            if feedback:
+                messages.append({"role": "user", "content": adaptive_feedback(self.features.tone_prompt_language, feedback)})
             try:
                 # 同时设置 RPC 与外层预算，避免 SDK 默认 RPC 超时提前截断用户配置。
                 result: Any = await asyncio.wait_for(
@@ -101,7 +111,7 @@ class ProbabilityToneAdapter:
                         "llm.generate",
                         timeout_ms=round(timeout * 1000),
                         model=self.features.probability_tone_task,
-                        prompt=[{"role": "system", "content": prompt}, {"role": "user", "content": self.text}],
+                        prompt=messages,
                         temperature=0.1,
                         # 200 字自由描述及 Breeze 的原文事件锚点，在中日文分词下可超过 256/512 token。
                         max_tokens=2048 if profile.kind == "breeze" else 1024 if limit > 0 else 256,

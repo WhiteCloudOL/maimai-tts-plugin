@@ -140,4 +140,11 @@ def control_prompt(
         prompt = placement[language] + prompt
     if not has_variable(selected, "event_tags"):
         prompt += "\n" + table
-    return prompt + "\n" + constraints[language] + ("\n" + adaptive_rules[language] if adaptive else "")
+    examples = {
+        "zh": "可选写法示例：[语气:温柔]你终于来了。[语气:坚定]我们一起面对。事件标签直接插入台词，不额外包裹方括号；普通文字中不保留这些控制标记。",
+        "en": "Optional example: [style:Warmly]Hello.[style:Firmly]We will face it together.",
+        "ja": "任意の例：[話し方:優しく]来てくれたんだね。[話し方:力強く]一緒に向き合おう。イベントは表の表記をそのまま挿入し、括弧を重ねず、通常の文字返信には制御を残さない。",
+    }
+    return "\n".join((prompt, constraints[language], examples[language])) + (
+        "\n" + adaptive_rules[language] if adaptive else ""
+    )

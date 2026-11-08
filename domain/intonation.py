@@ -306,9 +306,9 @@ def tone_prompt(
     if not has_variable(selected, "allowed_tones"):
         prompt += "\n[mmtts:ID]: " + choices
     controls = {
-        "zh": "也可改用 [mmtts:style=说话方式] 指定整段自由语气，描述最多 {limit} 字符；与 ID 标签二选一，正文保持纯文本。",
-        "en": "Alternatively, use [mmtts:style=delivery description] for whole-utterance delivery, at most {limit} characters. Choose either this or the tone ID tag, and keep the body plain text.",
-        "ja": "代わりに [mmtts:style=話し方の説明] で全体の話し方を指定できる。説明は {limit} 文字以内。ID タグとの併用はせず、本文は朗読する言葉だけにする。",
+        "zh": "也可改用 [mmtts:style=说话方式] 指定整段自由语气，描述最多 {limit} 字符，单行且不含方括号；与 ID 标签二选一。正文保持纯文本，不能插入局部语气或音频事件。",
+        "en": "Alternatively, use [mmtts:style=delivery description] for whole-utterance delivery, at most {limit} single-line characters without square brackets. Choose either this or the tone ID tag. Keep the body plain, without local directions or audio events.",
+        "ja": "代わりに [mmtts:style=話し方の説明] で全体の話し方を指定できる。説明は一行、角括弧を含まず{limit}文字以内。IDタグとは併用せず、本文は台詞のみで、局所的な話し方や音声イベントは入れない。",
     }
     strict = {
         "zh": "当前模型采用限定语调，不能使用 style、自由语气或局部事件标签。",
@@ -326,8 +326,14 @@ def tone_prompt(
         "ja": "語調タグは必要に応じた推奨で、必須ではない。省略時は既定を使う。使う場合は先頭に[mmtts:許可ID]を最大一つ、IDは一覧と完全一致させる。",
     }
     prompt += "\n" + protocol[language] + "\n"
+    example_direction, example_text = {"zh": ("轻柔", "你好。"), "en": ("Softly", "Hello."), "ja": ("優しく", "こんにちは。")}[language]
+    example_size = instruction_length(example_direction) if weighted else len(example_direction)
+    style_example = (
+        "\ntext: [mmtts:style=" + example_direction + "]" + example_text
+        if direction_limit >= example_size else ""
+    )
     return (
-        prompt + controls[language].format(limit=direction_limit) + (counts[language] if weighted else "")
+        prompt + controls[language].format(limit=direction_limit) + (counts[language] if weighted else "") + style_example
         if direction_limit
         else prompt + strict[language]
     )
