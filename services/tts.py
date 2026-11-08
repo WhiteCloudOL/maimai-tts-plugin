@@ -17,7 +17,7 @@ import json
 from ..settings.config import RuntimeSection
 from ..domain.breeze_control import boundary_pauses, parse_breeze_text
 from ..domain.adaptive_tone import ToneAdapter, apply_breeze_events
-from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, safe_validation_error
+from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, TTSOperationError, safe_validation_error
 from ..providers import PROVIDERS
 from ..providers.base import Provider
 from ..infrastructure.storage import ConfigStore
@@ -152,7 +152,8 @@ class TTSService:
                 size=lambda value: len(value.data),
             )
             result = replace(
-                cached.value, provider_id=audio.provider_id, request_id=audio.request_id, display_text=audio.display_text
+                cached.value, provider_id=audio.provider_id, request_id=audio.request_id, display_text=audio.display_text,
+                cache_status=audio.cache_status, delivery_cache_status=cached.source,
             )
             self.log.debug("转码结果缓存", result=cached.source)
         except TTSError as exc:
@@ -178,6 +179,7 @@ class TTSService:
         refresh_cache: bool = False,
         delivery_format: Optional[str] = None,
         tone_adapter: Optional[ToneAdapter] = None,
+        profile_transform: Optional[Callable[[Profile], Profile]] = None,
     ) -> Audio:
         if self.closed:
             raise TTSError("TTS 服务正在重载，请稍后重试")
@@ -202,6 +204,7 @@ class TTSService:
                         refresh_cache=refresh_cache,
                         delivery_format=delivery_format,
                         tone_adapter=tone_adapter,
+                        profile_transform=profile_transform,
                     ),
                     timeout=540,
                 )
@@ -231,6 +234,7 @@ class TTSService:
         refresh_cache: bool,
         delivery_format: Optional[str],
         tone_adapter: Optional[ToneAdapter] = None,
+        profile_transform: Optional[Callable[[Profile], Profile]] = None,
     ) -> Audio:
         if not isinstance(text, str) or not text.strip():
             raise TTSError("待合成文本不能为空")
@@ -270,6 +274,8 @@ class TTSService:
                 initial = initial.with_synthesis_overrides(
                     voice=initial.resolve_voice_id(voice) if voice is not None else first.voice
                 ).with_selected_voice()
+                if profile_transform is not None:
+                    initial = profile_transform(initial)
                 validate_requested_tone(initial, parsed.tone)
                 if parsed.direction:
                     validate_requested_direction(initial, parsed.direction)
@@ -315,6 +321,8 @@ class TTSService:
                 if speed is not None:
                     # 临时语速是本次调用的最终覆盖，优先于模型及音色保存的语速。
                     selected = selected.with_synthesis_overrides(speed=speed)
+                if profile_transform is not None:
+                    selected = profile_transform(selected)
                 requested = parsed.tone
                 direction = parsed.direction
                 speech_text = text
@@ -373,6 +381,8 @@ class TTSService:
                             self.cache.evict(namespace, key)
                         raise
             except (TTSError, ValidationError) as exc:
+                if isinstance(exc, TTSOperationError):
+                    raise
                 error = self.store.redact(safe_validation_error(exc), (text, profile.api_key))
                 failures.append(f"{profile.name}/{target.model_id}：{error}")
                 self.record(profile, False, error=error)
@@ -399,6 +409,7 @@ class TTSService:
             )
             return replace(
                 audio, provider_id=provider_id,
+                cache_status=cached.source,
                 display_text=clean_display_text(text, breeze=breeze_input is not None or selected.kind == "breeze"),
             )
         raise TTSError("所有已选服务商均合成失败：" + "；".join(failures))

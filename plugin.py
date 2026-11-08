@@ -9,14 +9,16 @@ from .settings.config import TTSConfig
 from .components.messaging import MessagingMixin
 from .components.intonation import IntonationMixin
 from .components.probability import ProbabilityMixin, ProbabilityReplyState, ProbabilityVoiceState
+from .api.endpoints import PluginAPIMixin
 from .domain.models import TTSError
 from .services.tts import TTSService
 from .infrastructure.storage import ConfigStore
 from .infrastructure.reference_audio import ReferenceAudioStore
 from .services.studio import Studio
+from .services.plugin_api import PluginAPIService
 
 
-class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin):
+class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin):
     config_model = TTSConfig
 
     def __init__(self) -> None:
@@ -24,6 +26,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         self._store: Optional[ConfigStore] = None
         self._service: Optional[TTSService] = None
         self._studio: Optional[Studio] = None
+        self._public_api: Optional[PluginAPIService] = None
         self._probability_reply_states: Dict[str, ProbabilityReplyState] = {}
         self._probability_reply_available_sessions: Set[str] = set()
         self._probability_voice_states: Dict[Tuple[str, str, str], List[ProbabilityVoiceState]] = {}
@@ -41,6 +44,12 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         return self._service
 
     @property
+    def public_api(self) -> PluginAPIService:
+        if self._public_api is None:
+            raise TTSError("语音 API 正在初始化")
+        return self._public_api
+
+    @property
     def studio(self) -> Studio:
         if self._studio is None:
             raise TTSError("工作台尚未加载")
@@ -52,9 +61,14 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         await ReferenceAudioStore(self.ctx.paths.data_dir).prepare()
         self._service = TTSService(self.store, self.config.runtime, self.ctx.logger)
         self._studio = Studio(self.store, self.service)
+        self._public_api = PluginAPIService(self.store, self.service, self.ctx, self._send_tts_message,
+                                            lambda: self.config.plugin.enabled)
         self._log_configuration("插件已加载")
 
     async def on_unload(self) -> None:
+        if self._public_api is not None:
+            await self._public_api.close()
+        self._public_api = None
         if self._service is not None:
             self.service.log.info("插件正在卸载")
         if self._studio is not None:
@@ -100,8 +114,12 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         if scope != "self":
             return
         old_studio, old_service = self._studio, self._service
+        if self._public_api is not None:
+            await self._public_api.close()
         self._service = TTSService(self.store, self.config.runtime, self.ctx.logger)
         self._studio = Studio(self.store, self.service)
+        self._public_api = PluginAPIService(self.store, self.service, self.ctx, self._send_tts_message,
+                                            lambda: self.config.plugin.enabled)
         if old_studio is not None:
             await old_studio.close()
         if old_service is not None:
@@ -139,6 +157,7 @@ class TTSPlugin(IntonationMixin, ProbabilityMixin, MessagingMixin, MaiBotPlugin)
         if not isinstance(data, dict):
             raise TTSError("配置必须是对象")
         result = await self.store.save(data, revision)
+        await self.public_api.settings_changed()
         self._invalidate_probability_decisions()
         self._log_configuration("工作台全部设置已保存")
         return result

@@ -240,7 +240,7 @@ class MessagingMixin:
         *,
         storage_message: bool = True,
         show_log: bool = True,
-    ) -> None:
+    ) -> Dict[str, Any]:
         """单独发送文字或语音，失败时让调用方终止后续投递。"""
         kind = "语音" if any(segment["type"] == "voice" for segment in segments) else "文字"
         try:
@@ -262,6 +262,7 @@ class MessagingMixin:
         if not success:
             self.service.log.error(f"发送{kind}失败", stream_id=stream_id)
             raise TTSError(f"{kind}发送到聊天流失败")
+        return {"sent": True, "message_id": sent.get("message_id") if isinstance(sent, dict) else None}
 
     async def _synthesize_audio(
         self,

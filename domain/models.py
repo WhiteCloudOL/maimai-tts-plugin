@@ -43,6 +43,14 @@ class TTSError(RuntimeError):
     """可安全向用户展示的服务错误。"""
 
 
+class TTSOperationError(TTSError):
+    """由调用流程处理的错误，携带业务码并结束当前合成链。"""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def validate_url(value: str, *, websocket: bool = False) -> str:
     """只接受完整服务地址，不隐式补路径，不允许内嵌凭据。"""
     if value != value.strip() or any(character.isspace() or ord(character) < 32 for character in value):
@@ -678,6 +686,10 @@ class Profile(Model):
 
 
 class Features(Model):
+    api_enabled: bool = True
+    api_audio_ttl_seconds: int = Field(default=600, ge=30, le=86400)
+    api_audio_max_size_mb: int = Field(default=64, ge=1, le=512)
+    api_max_jobs: int = Field(default=8, ge=1, le=32)
     delivery_format: Literal["silk", "source"] = "silk"
     silk_integer_seconds: bool = True
     command_enabled: bool = True
@@ -791,6 +803,8 @@ class Audio:
     provider_id: str = ""
     request_id: str = ""
     display_text: Optional[str] = None
+    cache_status: str = ""
+    delivery_cache_status: str = ""
 
 
 def safe_validation_error(error: Exception) -> str:

@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 
-from ..domain.models import Profile, StudioConfig, TTSError, safe_validation_error
+from ..domain.models import Features, Profile, StudioConfig, TTSError, safe_validation_error
 from .diagnostics import redact_secrets
 
 
@@ -23,6 +23,11 @@ class ConfigStore:
     @property
     def config(self) -> StudioConfig:
         return self._config.model_copy(deep=True)
+
+    @property
+    def features(self) -> Features:
+        """读取功能设置快照，供高频开关检查与共享 LLM 配置使用。"""
+        return self._config.feature.model_copy(deep=True)
 
     async def load(self) -> None:
         if await asyncio.to_thread(self.path.exists):
