@@ -679,6 +679,7 @@ class Profile(Model):
 
 class Features(Model):
     delivery_format: Literal["silk", "source"] = "silk"
+    silk_integer_seconds: bool = True
     command_enabled: bool = True
     tool_enabled: bool = True
     probability_enabled: bool = False

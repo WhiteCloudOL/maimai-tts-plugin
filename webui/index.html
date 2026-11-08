@@ -4938,7 +4938,7 @@
             ["source", "保留服务商原始格式"],
           ],
           "官方机器人、SnowLuma 与 NapCat 推荐 SILK；发送前自动转码，网页试听保留原始音频。",
-        )}</div>${toggleField("feature.command_enabled", "启用 /mmtts 语音命令", f.command_enabled, "通过 /mmtts、/tts 或 /语音 将正文合成为语音，可在命令前提及麦麦。")}${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text, "先发送回复文字，再单独发送语音。")}${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}<hr class="split">${selectField(
+        )}</div>${(f.delivery_format || "silk") === "silk" ? toggleField("feature.silk_integer_seconds", "输出整数秒语音", f.silk_integer_seconds ?? true, "SnowLuma 会四舍五入语音时长，开启后在末尾补静音至整数秒。仅用于 QQ 原生语音（SILK）发送。") : ""}${toggleField("feature.command_enabled", "启用 /mmtts 语音命令", f.command_enabled, "通过 /mmtts、/tts 或 /语音 将正文合成为语音，可在命令前提及麦麦。")}${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text, "先发送回复文字，再单独发送语音。")}${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}<hr class="split">${selectField(
           "feature.tone_prompt_language",
           "语音提示语言",
           f.tone_prompt_language || "zh",
@@ -6209,6 +6209,10 @@
             p.options.sample_rate = 44100;
         }
         dirty();
+        if (key === "feature.delivery_format") {
+          render();
+          return;
+        }
         if (["name", "model", "voice"].includes(key)) renderSummary();
         if (el.type === "checkbox" && key === "enabled") {
           if (!value) removeFromRoute(current().id);

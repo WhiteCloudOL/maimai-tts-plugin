@@ -120,12 +120,16 @@ class TTSService:
         self.cache.invalidate(f"speech:{scope}")
         self.log.debug("音色相关缓存已失效", provider_id=profile.id)
 
-    async def prepare_delivery(self, audio: Audio, delivery_format: str) -> Audio:
+    async def prepare_delivery(
+        self, audio: Audio, delivery_format: str, *, integer_seconds: Optional[bool] = None,
+    ) -> Audio:
         if delivery_format == "source":
             self.log.debug("使用源音频发送", format=audio.response_format, audio_bytes=len(audio.data))
             return audio
         if delivery_format != "silk":
             raise TTSError("不支持的聊天语音格式")
+        if integer_seconds is None:
+            integer_seconds = self.store.config.feature.silk_integer_seconds
         if (
             audio.response_format == "silk" and audio.data.startswith(SILK_HEADER)
             and len(SILK_HEADER) < len(audio.data) <= self.http.limit
@@ -139,8 +143,11 @@ class TTSService:
                 "delivery",
                 self.cache_keys.digest({
                     "audio": digest, "format": audio.response_format, "silk_revision": SILK_ENCODING_REVISION,
+                    "integer_seconds": integer_seconds,
                 }),
-                lambda: self.execute(lambda: asyncio.to_thread(encode_silk, audio, self.http.limit)),
+                lambda: self.execute(lambda: asyncio.to_thread(
+                    encode_silk, audio, self.http.limit, integer_seconds=integer_seconds,
+                )),
                 ttl=self.settings.audio_cache_ttl_seconds,
                 size=lambda value: len(value.data),
             )
@@ -358,7 +365,9 @@ class TTSService:
                 self.log.debug("合成结果缓存", provider_id=provider_id, model=selected.model, result=cached.source)
                 if delivery_format is not None:
                     try:
-                        audio = await self.prepare_delivery(audio, delivery_format)
+                        audio = await self.prepare_delivery(
+                            audio, delivery_format, integer_seconds=config.feature.silk_integer_seconds,
+                        )
                     except TTSError:
                         if key:
                             self.cache.evict(namespace, key)

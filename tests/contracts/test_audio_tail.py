@@ -1,6 +1,7 @@
 """实际 SILK 编解码应保留输入末尾声音，发送和缓存不能复用截尾结果。"""
 
 from array import array
+from aiohttp import web
 from io import BytesIO
 
 import base64
@@ -11,7 +12,7 @@ import wave
 import pysilk
 import pytest
 
-from maimai_tts_contract.domain.models import Audio, TTSError
+from maimai_tts_contract.domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError
 from maimai_tts_contract.infrastructure.voice_codec import encode_silk, voice_segment
 
 
@@ -98,6 +99,19 @@ def test_silk_passthrough_does_not_append_another_tail():
     assert encode_silk(converted, LIMIT).data == converted.data
 
 
+@pytest.mark.parametrize("milliseconds,seconds", [(20, 1), (1980, 3), (2460, 3), (2500, 4)])
+def test_integer_seconds_extend_only_the_tail_and_preserve_audible_content(milliseconds, seconds):
+    original = wav_audio(pcm_tail(milliseconds))
+    regular = decode(encode_silk(original, LIMIT).data)
+    rounded = encode_silk(original, LIMIT, integer_seconds=True)
+    actual = decode(rounded.data)
+    assert len(actual) == seconds * RATE * 2
+    assert actual[:len(regular)] == regular
+    assert max(abs(value) for value in samples(actual[-RATE * 2 // 100:])) < 500
+    assert rounded.display_text == original.display_text
+    assert encode_silk(rounded, LIMIT, integer_seconds=True).data == rounded.data
+
+
 def test_source_duration_limit_is_checked_before_codec_drain(monkeypatch):
     import maimai_tts_contract.infrastructure.voice_codec as codec
     monkeypatch.setattr(codec, "MAX_VOICE_SECONDS", 1)
@@ -126,3 +140,57 @@ async def test_source_delivery_is_unchanged_and_legacy_delivery_cache_is_not_reu
     reference = samples(complete_reference(raw))
     last_voice = max(index for index, value in enumerate(reference) if abs(value) > 500)
     assert len(decode(first.data)) // 2 > last_voice
+
+
+@pytest.mark.asyncio
+async def test_saved_integer_seconds_switch_partitions_delivery_cache(service):
+    original = wav_audio(pcm_tail(20))
+    first = await service.prepare_delivery(original, "silk")
+    assert len(decode(first.data)) == RATE * 2
+    misses = service.cache.misses
+    for enabled in (False, True):
+        saved = service.store.snapshot()
+        saved["feature"]["silk_integer_seconds"] = enabled
+        await service.store.save(saved, saved["revision"])
+        result = await service.prepare_delivery(original, "silk")
+        if enabled:
+            assert result.data == first.data
+        else:
+            assert len(decode(result.data)) < RATE * 2
+        assert result.display_text == original.display_text
+        assert await service.prepare_delivery(original, "source") is original
+    assert service.cache.misses == misses + 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,model,voice", [("breeze", "breeze-tts-2", "test-voice"), ("openai", "gpt-4o-mini-tts", "alloy")])
+async def test_delivery_option_uses_config_snapshot_and_reuses_source_cache(serve, service, kind, model, voice):
+    original = wav_audio(pcm_tail(20))
+    calls = []
+
+    async def handler(request):
+        calls.append(request.path)
+        return web.Response(body=original.data, content_type="audio/wav")
+
+    selected = Profile(
+        id="integer-seconds", name="整数秒语音测试", kind=kind, base_url=await serve(handler) + "/v1",
+        api_key="test-only-not-a-real-key", model=model, voice=voice, response_format="wav",
+        options={"breeze_api_mode": "cloud", "breeze_mode": "plain"} if kind == "breeze" else {},
+    )
+    saved = StudioConfig(profiles=[selected], primary=RouteTarget(provider_id=selected.id, model_id=model))
+    first = await service.synthesize("完整正文。", config=saved, delivery_format="silk")
+    assert len(decode(first.data)) == RATE * 2
+    assert (await service.prepare_delivery(first, "silk")).data == first.data
+
+    saved.feature.silk_integer_seconds = False
+    regular = await service.synthesize("完整正文。", config=saved, delivery_format="silk")
+    assert service.store.config.feature.silk_integer_seconds is True
+    assert len(decode(regular.data)) < RATE * 2
+
+    saved.feature.silk_integer_seconds = True
+    repeated = await service.synthesize("完整正文。", config=saved, delivery_format="silk")
+    source = await service.synthesize("完整正文。", config=saved, delivery_format="source")
+    preview = await service.synthesize("完整正文。", config=saved)
+    assert repeated.data == first.data
+    assert source.data == preview.data == original.data
+    assert len(calls) == 1

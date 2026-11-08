@@ -17,10 +17,10 @@ VOICE_SAMPLE_RATE = 24000
 MAX_VOICE_SECONDS = 600
 SILK_HEADER = b"\x02#!SILK_V3"
 SILK_FRAME_MS = 20
-SILK_ENCODING_REVISION = 2
+SILK_ENCODING_REVISION = 3
 
 
-def encode_silk(audio: Audio, limit: int) -> Audio:
+def encode_silk(audio: Audio, limit: int, *, integer_seconds: bool = False) -> Audio:
     """有界解码、重采样到单声道 PCM16，再编码腾讯 SILK；由工作线程调用。"""
     if not audio.data or len(audio.data) > limit:
         raise TTSError("待发送音频为空或超过大小上限")
@@ -55,9 +55,12 @@ def encode_silk(audio: Audio, limit: int) -> Audio:
             raise TTSError("待发送音频没有可编码的采样")
         # 补齐 20ms 尾包仍不足以排出 SDK 的前瞻/采样滤波延迟。
         # 额外送入两个完整静音包，排出有效尾音并留出短结束间隔；不剪切原有采样。
-        # 时长上限约束上游正文音频，额外补包始终少于 60ms。
+        # 时长上限约束上游正文音频，排空编码器所需的额外补包少于 60ms。
         packet_bytes = VOICE_SAMPLE_RATE * 2 * SILK_FRAME_MS // 1000
         padding = (-pcm.tell() % packet_bytes) + 2 * packet_bytes
+        if integer_seconds:
+            # 只在末尾续接静音，让包含排空尾包的实际语音时长向上补齐到整数秒。
+            padding += -(pcm.tell() + padding) % (VOICE_SAMPLE_RATE * 2)
         pcm.write(b"\0" * padding)
         pcm.seek(0)
         output = BytesIO()
