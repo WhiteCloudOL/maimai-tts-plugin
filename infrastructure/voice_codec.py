@@ -16,6 +16,8 @@ from ..domain.models import Audio, TTSError
 VOICE_SAMPLE_RATE = 24000
 MAX_VOICE_SECONDS = 600
 SILK_HEADER = b"\x02#!SILK_V3"
+SILK_FRAME_MS = 20
+SILK_ENCODING_REVISION = 2
 
 
 def encode_silk(audio: Audio, limit: int) -> Audio:
@@ -51,8 +53,12 @@ def encode_silk(audio: Audio, limit: int) -> Audio:
                 write_frame(converted)
         if not pcm.tell():
             raise TTSError("待发送音频没有可编码的采样")
-        # SILK 每包 20ms；补齐尾包，避免丢掉最后不足一包的声音。
-        pcm.write(b"\0" * (-pcm.tell() % (VOICE_SAMPLE_RATE // 50 * 2)))
+        # 补齐 20ms 尾包仍不足以排出 SDK 的前瞻/采样滤波延迟。
+        # 额外送入两个完整静音包，排出有效尾音并留出短结束间隔；不剪切原有采样。
+        # 时长上限约束上游正文音频，额外补包始终少于 60ms。
+        packet_bytes = VOICE_SAMPLE_RATE * 2 * SILK_FRAME_MS // 1000
+        padding = (-pcm.tell() % packet_bytes) + 2 * packet_bytes
+        pcm.write(b"\0" * padding)
         pcm.seek(0)
         output = BytesIO()
         pysilk.encode(pcm, output, VOICE_SAMPLE_RATE, 24000, tencent=True)

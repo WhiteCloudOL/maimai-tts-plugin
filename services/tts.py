@@ -23,7 +23,7 @@ from ..providers.base import Provider
 from ..infrastructure.storage import ConfigStore
 from ..infrastructure.diagnostics import Diagnostics, trace_scope
 from ..infrastructure.transport import Transport
-from ..infrastructure.voice_codec import SILK_HEADER, encode_silk
+from ..infrastructure.voice_codec import SILK_ENCODING_REVISION, SILK_HEADER, encode_silk
 from ..infrastructure.cache import AsyncResultCache
 from ..infrastructure.breeze_audio import join_breeze_audio
 from ..domain.intonation import parse_tone_tag
@@ -137,7 +137,9 @@ class TTSService:
             digest = await asyncio.to_thread(lambda: hashlib.sha256(audio.data).hexdigest())
             cached = await self.cache.get(
                 "delivery",
-                self.cache_keys.digest({"audio": digest, "format": audio.response_format}),
+                self.cache_keys.digest({
+                    "audio": digest, "format": audio.response_format, "silk_revision": SILK_ENCODING_REVISION,
+                }),
                 lambda: self.execute(lambda: asyncio.to_thread(encode_silk, audio, self.http.limit)),
                 ttl=self.settings.audio_cache_ttl_seconds,
                 size=lambda value: len(value.data),

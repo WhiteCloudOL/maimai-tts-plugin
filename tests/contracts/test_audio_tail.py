@@ -1,0 +1,128 @@
+"""实际 SILK 编解码应保留输入末尾声音，发送和缓存不能复用截尾结果。"""
+
+from array import array
+from io import BytesIO
+
+import base64
+import math
+import sys
+import wave
+
+import pysilk
+import pytest
+
+from maimai_tts_contract.domain.models import Audio, TTSError
+from maimai_tts_contract.infrastructure.voice_codec import encode_silk, voice_segment
+
+
+RATE = 24000
+LIMIT = 1024 * 1024
+
+
+def samples(raw: bytes) -> array:
+    values = array("h")
+    values.frombytes(raw)
+    if sys.byteorder != "little":
+        values.byteswap()
+    return values
+
+
+def pcm_tail(milliseconds: int) -> bytes:
+    # 最后一包仍有明确有效声音，不能依赖上游恰好自带尾部静音。
+    count = milliseconds * RATE // 1000
+    values = array("h", [0] * (RATE // 2))
+    values.extend(
+        round(12000 * math.sin(2 * math.pi * (700 * i / RATE + 750 * (i / RATE) ** 2 / (count / RATE))))
+        for i in range(count)
+    )
+    if sys.byteorder != "little":
+        values.byteswap()
+    return values.tobytes()
+
+
+def wav_audio(raw: bytes, rate: int = RATE, channels: int = 1) -> Audio:
+    output = BytesIO()
+    with wave.open(output, "wb") as stream:
+        stream.setparams((channels, 2, rate, 0, "NONE", ""))
+        stream.writeframes(raw)
+    return Audio(output.getvalue(), "audio/wav", "wav", "tail-test", "request-test", "完整正文。")
+
+
+def decode(data: bytes) -> bytes:
+    output = BytesIO()
+    pysilk.decode(BytesIO(data), output, RATE)
+    return output.getvalue()
+
+
+def complete_reference(raw: bytes) -> bytes:
+    # 使用独立 SDK 编码并留足观察区间，找出所有显著尾音实际出现的位置。
+    # 预期不依赖插件补包/排空的具体实现。
+    output = BytesIO()
+    pysilk.encode(BytesIO(raw + b"\0" * (RATE * 2 // 5)), output, RATE, 24000, tencent=True)
+    return decode(output.getvalue())
+
+
+@pytest.mark.parametrize("milliseconds", [20, 40, 100])
+def test_actual_codec_preserves_audible_tail_on_exact_packet_boundaries(milliseconds):
+    raw = pcm_tail(milliseconds)
+    original = wav_audio(raw)
+    converted = encode_silk(original, LIMIT)
+    actual = decode(converted.data)
+    reference = complete_reference(raw)
+    last_voice = max(index for index, value in enumerate(samples(reference)) if abs(value) > 500)
+    assert len(actual) // 2 > last_voice, "编码器缓冲中的有效尾音被截断"
+    assert actual == reference[:len(actual)], "排空尾部不能改写此前的声音"
+    assert len(raw) <= len(actual) < len(raw) + RATE * 2 * 60 // 1000
+    assert converted.display_text == original.display_text
+    segment = voice_segment(converted)
+    assert base64.b64decode(segment["binary_data_base64"]) == converted.data
+
+
+@pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100, 48000])
+@pytest.mark.parametrize("channels", [1, 2])
+def test_resampling_and_partial_packets_keep_full_duration(rate, channels):
+    count = rate * 123 // 1000
+    values = array("h")
+    for index in range(count):
+        value = round(12000 * math.sin(2 * math.pi * 700 * index / rate))
+        values.extend([value] * channels)
+    if sys.byteorder != "little":
+        values.byteswap()
+    actual = decode(encode_silk(wav_audio(values.tobytes(), rate, channels), LIMIT).data)
+    expected_samples = math.ceil(count * RATE / rate)
+    assert expected_samples < len(actual) // 2 < expected_samples + RATE * 60 // 1000
+
+
+def test_silk_passthrough_does_not_append_another_tail():
+    converted = encode_silk(wav_audio(pcm_tail(20)), LIMIT)
+    assert encode_silk(converted, LIMIT).data == converted.data
+
+
+def test_source_duration_limit_is_checked_before_codec_drain(monkeypatch):
+    import maimai_tts_contract.infrastructure.voice_codec as codec
+    monkeypatch.setattr(codec, "MAX_VOICE_SECONDS", 1)
+    assert decode(encode_silk(wav_audio(b"\0" * RATE * 2), LIMIT).data)
+    with pytest.raises(TTSError, match="秒上限"):
+        encode_silk(wav_audio(b"\0" * (RATE + 1) * 2), LIMIT)
+
+
+@pytest.mark.asyncio
+async def test_source_delivery_is_unchanged_and_legacy_delivery_cache_is_not_reused(service):
+    raw = pcm_tail(20)
+    original = wav_audio(raw)
+    assert await service.prepare_delivery(original, "source") is original
+    # 模拟升级前留下的转码缓存；新策略必须重新编码，后续相同请求仍命中缓存。
+    import hashlib
+    legacy_key = service.cache_keys.digest({"audio": hashlib.sha256(original.data).hexdigest(), "format": "wav"})
+    stale = Audio(b"\x02#!SILK_V3stale", "audio/silk", "silk")
+    async def old_result():
+        return stale
+    await service.cache.get("delivery", legacy_key, old_result, ttl=300, size=lambda value: len(value.data))
+    first = await service.prepare_delivery(original, "silk")
+    assert first.data != stale.data
+    misses = service.cache.misses
+    second = await service.prepare_delivery(original, "silk")
+    assert second.data == first.data and service.cache.misses == misses
+    reference = samples(complete_reference(raw))
+    last_voice = max(index for index, value in enumerate(reference) if abs(value) > 500)
+    assert len(decode(first.data)) // 2 > last_voice
