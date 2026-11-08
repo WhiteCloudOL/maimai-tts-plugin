@@ -1889,7 +1889,7 @@
           aria-controls="view"
           aria-selected="false"
         >
-          <span class="num">03</span>回复行为</button
+          <span class="num">03</span>通用设置</button
         ><button
           class="maibot-button key"
           role="tab"
@@ -4983,11 +4983,18 @@
           ${toggleField("feature.probability_group_enabled", "群聊允许概率语音", f.probability_group_enabled)}
           ${toggleField("feature.probability_private_enabled", "私聊允许概率语音", f.probability_private_enabled)}
           ${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每段先发文字，再单独发送对应语音。")}
-          ${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "先发送引用卡片与回复文字，再单独发送语音；关闭后引用回复使用文字。")}`);
-        const adaptive = card("概率语音 · 语调自适应", "抽中语音后，由独立 LLM 按正文选择表达。", `
-          ${toggleField("feature.probability_tone_enabled", "启用 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效；开启时检查模型与音色，并可同步启用动态语调。")}
-          <div id="probability-tone-options" class="feature-fields">${probabilityToneOptions()}</div>`);
-        return `${promptSettingsView()}<div class="features-grid"><div class="feature-column">${output}${tools}</div><div class="feature-column">${probability}${adaptive}</div></div>`;
+          ${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "先发送引用卡片与回复文字，再单独发送语音；关闭后引用回复使用文字。")}
+          ${toggleField("feature.probability_tone_enabled", "启用 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效；开启时检查模型与音色，并可同步启用动态语调。使用下方的语音辅助 LLM。")}`);
+        const helper = card("语音辅助 LLM", "概率语音自适应与插件 API 自动模式共用。", `
+          <div id="probability-tone-options">${probabilityToneOptions()}</div>`);
+        const api = card("插件 API", "供其他 MaiBot 插件查询、合成和发送语音。", `
+          ${toggleField("feature.api_enabled", "启用插件 API", f.api_enabled, "通过 MaiBot 插件 SDK 调用，支持自动语气和高级模型参数。")}
+          <div class="form-grid feature-fields">
+            ${field("feature.api_audio_ttl_seconds", "音频与任务结果保留（秒）", f.api_audio_ttl_seconds, "30–86400，默认 600 秒。", "number")}
+            ${field("feature.api_audio_max_size_mb", "API 音频容量（MiB）", f.api_audio_max_size_mb, "1–512，按最近访问顺序回收音频。", "number")}
+            ${field("feature.api_max_jobs", "API 活动任务上限", f.api_max_jobs, "1–32；合成并发沿用运行设置。", "number")}
+          </div><small>对接文档：插件目录 docs/plugin-api.md · API 版本 1</small>`);
+        return `${promptSettingsView()}<div class="features-grid"><div class="feature-column">${output}${tools}${api}</div><div class="feature-column">${probability}${helper}</div></div>`;
       }
       function previewModelOptions() {
         const p = state.config.profiles.find(
