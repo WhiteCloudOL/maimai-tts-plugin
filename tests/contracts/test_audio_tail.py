@@ -1,9 +1,10 @@
 """实际 SILK 编解码应保留输入末尾声音，发送和缓存不能复用截尾结果。"""
 
-from array import array
 from aiohttp import web
+from array import array
 from io import BytesIO
 
+import av
 import base64
 import math
 import sys
@@ -81,7 +82,8 @@ def test_actual_codec_preserves_audible_tail_on_exact_packet_boundaries(millisec
 
 @pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100, 48000])
 @pytest.mark.parametrize("channels", [1, 2])
-def test_resampling_and_partial_packets_keep_full_duration(rate, channels):
+@pytest.mark.parametrize("integer_seconds", [False, True])
+def test_resampling_and_partial_packets_keep_full_duration(rate, channels, integer_seconds):
     count = rate * 123 // 1000
     values = array("h")
     for index in range(count):
@@ -89,9 +91,35 @@ def test_resampling_and_partial_packets_keep_full_duration(rate, channels):
         values.extend([value] * channels)
     if sys.byteorder != "little":
         values.byteswap()
-    actual = decode(encode_silk(wav_audio(values.tobytes(), rate, channels), LIMIT).data)
+    actual = decode(encode_silk(
+        wav_audio(values.tobytes(), rate, channels), LIMIT, integer_seconds=integer_seconds,
+    ).data)
     expected_samples = math.ceil(count * RATE / rate)
-    assert expected_samples < len(actual) // 2 < expected_samples + RATE * 60 // 1000
+    if integer_seconds:
+        assert len(actual) == RATE * 2
+    else:
+        assert expected_samples < len(actual) // 2 < expected_samples + RATE * 60 // 1000
+
+
+@pytest.mark.parametrize("response_format,container_format,codec", [
+    ("mp3", "mp3", "libmp3lame"), ("opus", "ogg", "libopus"),
+    ("flac", "flac", "flac"), ("aac", "adts", "aac"),
+])
+def test_compressed_inputs_preserve_decoded_voice_when_padding_to_integer_seconds(response_format, container_format, codec):
+    compressed = BytesIO()
+    with av.open(BytesIO(wav_audio(pcm_tail(20)).data)) as source:
+        with av.open(compressed, mode="w", format=container_format) as destination:
+            stream = destination.add_stream(codec, rate=48000)
+            stream.layout = "stereo"
+            for frame in source.decode(audio=0):
+                destination.mux(stream.encode(frame))
+            destination.mux(stream.encode(None))
+    original = Audio(compressed.getvalue(), "application/octet-stream", response_format)
+    regular = decode(encode_silk(original, LIMIT).data)
+    rounded = decode(encode_silk(original, LIMIT, integer_seconds=True).data)
+    assert rounded[:len(regular)] == regular
+    assert len(rounded) == RATE * 2
+    assert max(abs(value) for value in samples(rounded[-RATE * 2 // 100:])) < 500
 
 
 def test_silk_passthrough_does_not_append_another_tail():
