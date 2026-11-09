@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        sdk: ["2.13.0", "2.21.0"]
+        sdk: ["2.13.0", "2.22.1"]
     env:
       PYTHONUTF8: "1"
     steps:

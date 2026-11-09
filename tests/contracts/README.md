@@ -9,7 +9,7 @@
 在插件仓库根目录安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，运行：
 
 ```sh
-uv run --isolated --no-project --python 3.12 --with-requirements requirements-test.txt --with maibot-plugin-sdk==2.21.0 python -m pytest tests/contracts -q --tb=short -W error::ResourceWarning -p no:cacheprovider -o asyncio_default_fixture_loop_scope=function
+uv run --isolated --no-project --python 3.12 --with-requirements requirements-test.txt --with maibot-plugin-sdk==2.22.1 python -m pytest tests/contracts -q --tb=short -W error::ResourceWarning -p no:cacheprovider -o asyncio_default_fixture_loop_scope=function
 ```
 
 将 SDK 版本改为 `2.13.0` 可运行相同的最低兼容版本回归。
