@@ -2019,6 +2019,13 @@
         breeze_voice_filter_language: "zh",
         breeze_voice_search: "",
         breeze_max_characters: 1000,
+        breeze_cpp_temperature: 0,
+        breeze_cpp_top_k: 0,
+        breeze_cpp_top_p: 0,
+        breeze_cpp_repetition_penalty: 0,
+        breeze_cpp_split_chars: null,
+        breeze_cpp_max_new_tokens: 0,
+        breeze_cpp_voice_id: "",
         clone_speaker_id: "",
         clone_billing: "prepaid",
         clone_language: 0,
@@ -2592,13 +2599,16 @@
       function breezeConnection(p) {
         if (p.kind !== "breeze") return "";
         return selectField("options.breeze_api_mode", "Breeze 接入方式", p.options.breeze_api_mode, [["self_hosted", "本地API"], ["cloud", "Breeze 官方在线"]]) +
-          '<p class="muted wide">API Key 选填；填写后通过 Authorization: Bearer 发送，留空时省略鉴权头。本地API 使用参考录音与文字稿，在线服务使用已保存的音色。</p>';
+          `<p class="muted wide">API Key 填写密钥本身，插件通过 Authorization: Bearer 发送。${isBreezeLocal(p) ? "C++ 原版可留空；fork 鉴权版填写服务端配置的有效密钥。共用原生 HTTP 合成接口，同一实例按顺序提交，平台请求超时包含等待与合成时间。" : "在线服务使用已保存的音色。"}</p>`;
       }
       function breezeOptionsForm(p) {
         const o = p.options;
-        const guidance = field("options.breeze_guidance_scale", "CFG 指令强度", o.breeze_guidance_scale, "1–10。纯复刻与普通朗读使用 1；风格指令、声音设计可使用 4 等更高值。", "number");
+        const guidance = field("options.breeze_guidance_scale", "CFG 指令强度", o.breeze_guidance_scale, isBreezeLocal(p) ? "1–10。1 使用基础引导；语气与事件可从 2–3 开始调整。" : "1–10。纯复刻与普通朗读使用 1；风格指令、声音设计可使用 4 等更高值。", "number");
         if (isBreezeCloud(p)) return `<div class="form-grid">${guidance}${selectField("options.breeze_transport", "音频交付方式", o.breeze_transport, [["sync", "同步完整音频"], ["stream", "HTTP 流式音频"], ["async", "后台任务 · 自动等待结果"]])}${selectField("options.breeze_language_code", "合成语言", o.breeze_language_code, breezeLanguages(p))}${field("options.breeze_volume", "音量倍率", o.breeze_volume, "0.01–2，1 为原始音量。", "number")}${toggleField("options.breeze_speaker_boost", "加强说话人相似度", o.breeze_speaker_boost, "带风格指令且 CFG 大于 1 时，平台优先按指令生成。")}${selectField("options.breeze_voice_type", "同步音色目录", o.breeze_voice_type, [["all", "公共与个人音色"], ["default", "公共音色"], ["personal", "个人账号音色"]])}${selectField("options.breeze_voice_filter_language", "同步音色语言", o.breeze_voice_filter_language, [["", "全部语言"], ...breezeLanguages(p, false)])}${field("options.breeze_voice_search", "同步音色关键词", o.breeze_voice_search, "可选，按名称或声音描述筛选；目录最多同步 1000 项，不改变已收藏音色。")}${field("options.breeze_max_characters", "账号文本长度上限", o.breeze_max_characters, "默认 1000，获批的账号可填写至 2000。", "number")}</div>`;
-        return `<div class="form-grid">${guidance}${field("options.seed", "随机种子", o.seed ?? "", "留空使用 42；相同录音、文本与种子便于复现。", "number")}${selectField("options.breeze_mode", "模型默认声音来源", o.breeze_mode, [["reference", "参考录音 · 原声复刻 / 语气引导"], ["design", "文字设计声音"], ["plain", "模型原生声音"]])}<p class="muted wide">每个音色可单独保存录音、文字稿、风格与语调。模型默认参考录音用于未指定收藏音色时的合成。本地API 输出为单声道 WAV。</p>${o.breeze_mode === "reference" ? referenceForm(p) + area("options.reference_text", "参考录音文字稿", o.reference_text, "准确填写录音中说出的全部内容。") : ""}</div>`;
+        const sources = [["reference", "参考录音 · 原声复刻 / 语气引导"], ["design", "文字设计声音"], ["plain", "模型原生声音"]];
+        if (isBreezeLocal(p)) sources.push(["saved", "服务端已保存音色 ID"]);
+        const cppOptions = isBreezeLocal(p) ? `<details class="advanced-settings wide"><summary>C++ 采样与长文参数</summary><div class="form-grid">${field("options.breeze_cpp_temperature", "采样温度", o.breeze_cpp_temperature, "0 沿用模型默认值。", "number")}${field("options.breeze_cpp_top_k", "Top K", o.breeze_cpp_top_k, "0 沿用模型默认值。", "number")}${field("options.breeze_cpp_top_p", "Top P", o.breeze_cpp_top_p, "0 沿用模型默认值；可设置 0–1。", "number")}${field("options.breeze_cpp_repetition_penalty", "重复惩罚", o.breeze_cpp_repetition_penalty, "0 沿用模型默认值。", "number")}${field("options.breeze_cpp_split_chars", "长文分段字符数", o.breeze_cpp_split_chars ?? "", "留空沿用服务端设置；0 整段生成。", "number")}${field("options.breeze_cpp_max_new_tokens", "每段最大音频帧数", o.breeze_cpp_max_new_tokens, "0 沿用模型默认值；每秒约 12.5 帧。", "number")}</div></details>` : "";
+        return `<div class="form-grid">${guidance}${field("options.seed", "随机种子", o.seed ?? "", "留空使用 42；相同录音、文本与种子便于复现。", "number")}${selectField("options.breeze_mode", "模型默认声音来源", o.breeze_mode, sources)}<p class="muted wide">每个音色可单独保存录音、文字稿、风格与语调。本地API 输出为单声道 WAV。${isBreezeLocal(p) ? "MP3 / WAV 参考录音在插件内转为标准 WAV；服务端音色可在音色目录中同步。" : "模型默认参考录音用于未指定收藏音色时的合成。"}</p>${o.breeze_mode === "saved" ? field("voice", "服务端音色 ID", p.voice, "填写服务端保存的 ID，或进入音色窗口同步目录。", "text", true) : ""}${o.breeze_mode === "reference" ? referenceForm(p) + area("options.reference_text", "参考录音文字稿", o.reference_text, "准确填写录音中说出的全部内容。") : ""}${cppOptions}</div>`;
       }
       function cloudDesign(p) {
         if (isBreezeCloud(p)) return true;
@@ -2616,7 +2626,7 @@
         return p.kind !== "mimo" && (p.kind !== "qwen" || isQwenAudio(p));
       }
       function hasApi(p, operation) {
-        if (p.kind === "breeze") return isBreezeCloud(p);
+        if (p.kind === "breeze") return isBreezeCloud(p) || (isBreezeLocal(p) && operation === "voices");
         if (p.kind === "compatible" && protocolFor(p).mode === "custom")
           return Boolean(
             p[operation + "_url"] ||
@@ -2738,7 +2748,7 @@
             pendingKeys: new Set(),
           };
           selectVoiceCategory(
-            p.kind === "breeze" ? (isBreezeCloud(p) ? "account" : "clone") : voiceMode(p) === "clone"
+            p.kind === "breeze" ? (isBreezeCloud(p) || isBreezeLocal(p) ? "account" : "clone") : voiceMode(p) === "clone"
               ? "clone"
               : voiceMode(p) === "design"
                 ? "design"
@@ -2934,6 +2944,7 @@
         state.formScope = "";
       }
       function voiceCategories(p) {
+        if (isBreezeLocal(p)) return [["account", "服务端音色"], ["custom", "自定义音色 ID"], ["clone", "参考音色"], ["design", "声音设计"]];
         if (isBreezeLocal(p)) return [["clone", "参考音色"], ["design", "声音设计"]];
         if (isBreezeCloud(p)) return [["account", "音色目录"], ["custom", "自定义音色"], ["clone", "音色克隆"], ["design", "声音设计"]];
         const categories = [
@@ -3055,6 +3066,7 @@
         const options = { ...p.options };
         if (!existing && ["minimax", "bailian_minimax"].includes(p.kind))
           options.clone_speaker_id = "";
+        if (!existing && isBreezeLocal(p)) options.breeze_cpp_voice_id = "";
         if (reference && !existing)
           options.reference_source =
             p.kind === "bailian_minimax" ? "url" : "file";
@@ -3118,7 +3130,7 @@
               "volcengine",
             ].includes(p.kind) ||
               isBreezeCloud(p) ||
-              (p.kind === "siliconflow" &&
+              ((p.kind === "siliconflow" || isBreezeLocal(p)) &&
                 state.voiceEditor?.cloneMethod !== "dynamic")))
         );
       }
@@ -3188,6 +3200,9 @@
       function clonePlatformFields(p, editor) {
         if (p.kind === "volcengine") return volcVoiceFields(p, editor);
         if (!isAccountClone()) return "";
+        if (isBreezeLocal(p)) return editor.remoteCreated
+          ? '<p class="muted wide">音色已保存到 C++ 服务端，可通过 ID 复用编码后的参考声音。</p>'
+          : field("options.breeze_cpp_voice_id", "服务端音色 ID（选填）", editor.options.breeze_cpp_voice_id, "1–64 位字母、数字、_ 或 -；留空自动生成，音色名称用于显示。", "text", true);
         if (isBreezeCloud(p)) {
           if (editor.remoteCreated) return '<p class="muted wide">此音色已保存到 Breeze 在线账号。可调整收藏名称、风格、语速与语调；创建新的声音时选择“新建音色”。</p>';
           const o = editor.options;
@@ -3340,6 +3355,7 @@
         return "";
       }
       function cloneHint(p, editor) {
+        if (isBreezeLocal(p)) return editor.remoteCreated ? "音色可直接试听，风格和语调可单独配置。" : "录音会转换为标准 WAV，并连同准确文字稿保存到服务端音色库。";
         if (
           cloudDesign(p) &&
           state.voiceWorkspace.category === "design" &&
@@ -3410,7 +3426,7 @@
           category = state.voiceWorkspace.category,
           account = isAccountClone(),
           design = category === "design";
-        return `<div class="form-grid"><div class="field"><label for="voice-dialog-name">${account && !editor.remoteCreated && (p.kind === "cosyvoice" || isQwenAudio(p)) ? "音色前缀" : "音色名称"}</label><input id="voice-dialog-name" class="maibot-input input" data-voice-property="name" value="${h(v.name)}" maxlength="80" placeholder="${(p.kind === "cosyvoice" || isQwenAudio(p)) && account ? "maimai" : "例如：温柔女声"}"></div>${!editor.useReference && !design ? `<div class="field"><label for="voice-dialog-id">音色 ID</label><input id="voice-dialog-id" class="maibot-input input mono" data-voice-property="id" value="${h(v.id)}" maxlength="500" placeholder="${h(libraryExamples(p, "voices").split(" | ")[0])}"></div>` : ""}${account && editor.remoteCreated ? `<div class="field wide"><label>已创建的音色 ID</label><input class="maibot-input input mono" readonly value="${h(v.id)}"></div>` : ""}${p.kind === "siliconflow" && category === "clone" ? `<div class="field wide"><label for="clone-method">克隆方式</label><select id="clone-method" class="maibot-input input" data-clone-method><option value="account" ${editor.cloneMethod === "account" ? "selected" : ""}>创建账号音色，保存音色 ID</option><option value="dynamic" ${editor.cloneMethod === "dynamic" ? "selected" : ""}>动态参考录音，合成时使用录音</option></select></div>` : ""}${clonePlatformFields(p, editor)}${editor.useReference && !(account && editor.remoteCreated) ? voiceReferenceEditor(p, editor) : ""}${account && editor.remoteCreated && (p.kind === "cosyvoice" || isQwenAudio(p)) && category === "clone" ? `<details class="advanced-settings"><summary>更新云端录音</summary><p class="muted">为此音色提交新录音后，平台会重新审核。</p>${voiceReferenceEditor(p, editor)}<button class="maibot-button key" data-action="update-cloud-voice">更新云端录音</button></details>` : ""}${account ? `<p class="muted wide">${h(cloneHint(p, editor))}</p>` : `${voiceStyleField(p, editor, false, design)}${supportsSpeedMultiplier(p) ? `<div class="field"><label for="voice-dialog-speed">音色语速</label><input id="voice-dialog-speed" class="maibot-input input" data-voice-property="speed" type="number" step="0.05" min="0.25" max="4" value="${h(v.speed ?? "")}" placeholder="沿用模型语速"></div>` : ""}${["openai", "compatible"].includes(p.kind) ? `<label class="inline-check wide"><input type="checkbox" data-voice-object ${v.custom_voice ? "checked" : ""}>使用 OpenAI 自定义音色对象（voice.id）</label>` : ""}${design && p.kind === "mimo" ? toggleField("options.optimize_text_preview", "优化播报文本", editor.options.optimize_text_preview, "使用 MiMo 声音设计模型的文本优化能力。") : ""}`}${savedVoicePerformance(p, editor)}${toneForm(p, "voice")}</div>`;
+        return `<div class="form-grid"><div class="field"><label for="voice-dialog-name">${account && !editor.remoteCreated && (p.kind === "cosyvoice" || isQwenAudio(p)) ? "音色前缀" : "音色名称"}</label><input id="voice-dialog-name" class="maibot-input input" data-voice-property="name" value="${h(v.name)}" maxlength="80" placeholder="${(p.kind === "cosyvoice" || isQwenAudio(p)) && account ? "maimai" : "例如：温柔女声"}"></div>${!editor.useReference && !design ? `<div class="field"><label for="voice-dialog-id">音色 ID</label><input id="voice-dialog-id" class="maibot-input input mono" data-voice-property="id" value="${h(v.id)}" maxlength="500" placeholder="${h(libraryExamples(p, "voices").split(" | ")[0])}"></div>` : ""}${account && editor.remoteCreated ? `<div class="field wide"><label>已创建的音色 ID</label><input class="maibot-input input mono" readonly value="${h(v.id)}"></div>` : ""}${(p.kind === "siliconflow" || isBreezeLocal(p)) && category === "clone" ? `<div class="field wide"><label for="clone-method">克隆方式</label><select id="clone-method" class="maibot-input input" data-clone-method><option value="account" ${editor.cloneMethod === "account" ? "selected" : ""}>${isBreezeLocal(p) ? "创建服务端音色，保存音色 ID" : "创建账号音色，保存音色 ID"}</option><option value="dynamic" ${editor.cloneMethod === "dynamic" ? "selected" : ""}>动态参考录音，合成时使用录音</option></select></div>` : ""}${clonePlatformFields(p, editor)}${editor.useReference && !(account && editor.remoteCreated) ? voiceReferenceEditor(p, editor) : ""}${account && editor.remoteCreated && (p.kind === "cosyvoice" || isQwenAudio(p)) && category === "clone" ? `<details class="advanced-settings"><summary>更新云端录音</summary><p class="muted">为此音色提交新录音后，平台会重新审核。</p>${voiceReferenceEditor(p, editor)}<button class="maibot-button key" data-action="update-cloud-voice">更新云端录音</button></details>` : ""}${account ? `<p class="muted wide">${h(cloneHint(p, editor))}</p>` : `${voiceStyleField(p, editor, false, design)}${supportsSpeedMultiplier(p) ? `<div class="field"><label for="voice-dialog-speed">音色语速</label><input id="voice-dialog-speed" class="maibot-input input" data-voice-property="speed" type="number" step="0.05" min="0.25" max="4" value="${h(v.speed ?? "")}" placeholder="沿用模型语速"></div>` : ""}${["openai", "compatible"].includes(p.kind) ? `<label class="inline-check wide"><input type="checkbox" data-voice-object ${v.custom_voice ? "checked" : ""}>使用 OpenAI 自定义音色对象（voice.id）</label>` : ""}${design && p.kind === "mimo" ? toggleField("options.optimize_text_preview", "优化播报文本", editor.options.optimize_text_preview, "使用 MiMo 声音设计模型的文本优化能力。") : ""}`}${savedVoicePerformance(p, editor)}${toneForm(p, "voice")}</div>`;
       }
       function presetEntries() {
         const p = state.modelEditor.profile;
@@ -3448,7 +3464,7 @@
                   `<label class="choice-row"><input type="checkbox" data-preset-voice="${h(v.id)}" ${selected.has(v.id) ? "checked" : ""}><span><strong>${h(v.name)}</strong>${v.name !== v.id ? `<small>${h(v.id)}</small>` : ""}</span></label>`,
               )
               .join("") ||
-            `<p class="choice-empty">${panel.category === "account" ? "点击同步账号音色，选择平台上已有的声音。" : "此模型可在“自定义音色”中填写平台音色 ID。"}</p>`;
+            `<p class="choice-empty">${panel.category === "account" ? "点击同步平台音色，选择平台上已有的声音。" : "此模型可在“自定义音色”中填写平台音色 ID。"}</p>`;
         }
         $("#voice-preset-pages").innerHTML =
           `<small role="status">已选 ${selected.size} 项 · 筛选 ${filtered.length} 项 · 第 ${panel.page + 1} / ${pages} 页</small><div class="flex-wrap"><button class="maibot-button key small" data-action="preset-prev" ${panel.page === 0 ? "disabled" : ""}>上一页</button><button class="maibot-button key small" data-action="preset-next" ${panel.page + 1 === pages ? "disabled" : ""}>下一页</button></div>`;
@@ -3494,7 +3510,7 @@
                   : "填写已有音色 ID，分别保存名称、风格与语速。",
             clone:
               isBreezeLocal(p)
-                ? "保存参考录音与完整文字稿；合成时读取录音，保留说话人的声音特点。"
+                ? "可保存到服务端音色库，也可使用动态参考录音；录音与准确文字稿共同保留说话人的声音特点。"
                 : p.kind === "mimo"
                 ? "MiMo 使用参考录音进行音色克隆，录音与声音参数一起保存。"
                 : "创建平台克隆音色，或编辑已收藏的克隆音色。",
@@ -3503,7 +3519,7 @@
         state.dialogKind = "voices";
         dialog(
           `音色与克隆 · ${p.name}`,
-          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `${voices.length ? `<section class="saved-voice-list"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices)}</div><hr class="split"></section>` : ""}<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步账号音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices) || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-") ? '<button class="maibot-button key" data-action="platform-preview">播放平台试听</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? ((account && state.voiceEditor.remoteCreated) || (p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-")) ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">删除云端音色</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
+          `<div class="voice-workspace-top"><div class="field"><label for="voice-workspace-model">音色所属模型</label><select id="voice-workspace-model" class="maibot-input input mono" data-workspace-model>${modelIds.map((id) => `<option value="${h(id)}" ${id === p.model ? "selected" : ""}>${h(id)}</option>`).join("")}</select></div><span id="voice-save-status" class="voice-save-status" role="status">${h(panel.status || "保存后直接写入此平台")}</span></div><div class="voice-categories" role="tablist" aria-label="音色功能">${categories.map(([key, label]) => `<button class="maibot-button key small" role="tab" id="voice-tab-${key}" data-voice-category="${key}" aria-selected="${key === category}" aria-controls="voice-category-panel">${label}</button>`).join("")}</div><div id="voice-category-panel" role="tabpanel" aria-labelledby="voice-tab-${category}"><p class="muted editor-intro">${h(hints[category])}</p>${listMode ? `${voices.length ? `<section class="saved-voice-list"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices)}</div><hr class="split"></section>` : ""}<div class="voice-preset-toolbar">${category === "account" ? '<button class="maibot-button key small" data-action="sync-workspace-voices">同步平台音色</button><button class="maibot-button key small" data-action="refresh-workspace-voices" title="重新请求平台，更新列表缓存">强制刷新</button>' : ""}<input id="voice-preset-search" class="maibot-input input" type="search" aria-label="${category === "account" ? "搜索账号音色" : "搜索预设音色"}" placeholder="搜索音色…" value="${h(panel.search)}"><button class="maibot-button key small" data-action="select-all-presets">选择筛选项</button><button class="maibot-button key small" data-action="custom-workspace-voice">手动添加音色</button></div><div id="voice-presets" class="voice-preset-grid"></div><div id="voice-preset-pages" class="choice-toolbar"></div>` : `<div class="voice-workspace-grid"><aside class="voice-sidebar"><div class="section-title"><h3>已收藏音色</h3><small>${voices.length}</small></div><div class="voice-sidebar-list">${savedVoiceRows(voices) || '<p class="muted">保存的音色会显示在这里。</p>'}</div><button class="maibot-button key small" data-action="new-workspace-voice">＋ 新建音色</button></aside><section class="voice-form">${voiceEditorForm()}${category === "custom" ? `<details class="advanced-settings"><summary>批量添加音色 ID</summary><div class="field"><label for="voice-batch">每行填写 ID | 名称</label><textarea id="voice-batch" class="maibot-input input mono" rows="4" placeholder="${h(libraryExamples(p, "voices"))}"></textarea><button class="maibot-button key small" data-action="save-batch-voices">保存批量音色</button></div></details>` : ""}</section></div>`}</div>${state.audioUrl && state.objectAudio === "voice" ? `<audio class="dialog-audio" controls controlslist="nodownload" src="${h(state.audioUrl)}" aria-label="音色试听"></audio>` : ""}<div class="object-dialog-footer"><button class="maibot-button key" data-action="close-workspace">关闭</button>${!listMode && (!account || (state.voiceEditor.remoteCreated && (!state.voiceEditor.voice.clone_state || state.voiceEditor.voice.clone_state === "ready"))) ? '<button class="maibot-button key" data-action="preview-object">试听音色</button>' : ""}${p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-") ? '<button class="maibot-button key" data-action="platform-preview">播放平台试听</button>' : ""}${["volcengine", "cosyvoice"].includes(p.kind) || isQwenAudio(p) ? ((account && state.voiceEditor.remoteCreated) || (p.kind === "volcengine" && !listMode && state.voiceEditor.voice.id && voiceResource(p).startsWith("seed-icl-")) ? '<button class="maibot-button key" data-action="query-clone-status">查询音色状态</button>' : "") : ""}${account && state.voiceEditor.remoteCreated && (["cosyvoice", "bailian_minimax", "minimax"].includes(p.kind) || isBreezeCloud(p) || isBreezeLocal(p) || isQwenAudio(p) || standardOpenAI(p)) ? '<button class="maibot-button key danger" data-action="delete-cloud-voice">${isBreezeLocal(p) ? "移除服务端缓存音色" : "删除云端音色"}</button>' : ""}${listMode ? '<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-presets">保存所选音色</button>' : `<button class="maibot-button maibot-button-primary key primary" data-action="save-workspace-voice">${account && !state.voiceEditor.remoteCreated ? (category === "design" ? "设计并保存音色" : "创建并保存克隆音色") : "保存音色"}</button>`}</div>`,
         );
         if (listMode) renderWorkspacePresets();
       }
@@ -3531,7 +3547,7 @@
           (!Number.isFinite(v.speed) || v.speed < 0.25 || v.speed > 4)
         )
           throw Error("音色语速请填写 0.25–4，留空沿用模型语速。");
-        if (isBreezeLocal(p) && editor.useReference && !editor.options.reference_text?.trim())
+        if (isBreezeLocal(p) && editor.useReference && !isAccountClone() && !editor.options.reference_text?.trim())
           throw Error("请填写参考录音的完整文字稿。");
         if (editor.useReference && !isAccountClone()) {
           const o = editor.options,
@@ -3805,6 +3821,7 @@
             o.reference_source === "file" ? o.reference_file : o.reference_url
           ).trim();
           if (!design && !url && !(p.kind === "minimax" && o.minimax_clone_file_id)) throw Error("请填写参考录音路径或 URL。");
+          if (isBreezeLocal(p) && !o.reference_text?.trim()) throw Error("请填写参考录音的完整文字稿。");
           const result = await runJob(design ? "design" : "clone", {
             profile_id: p.id,
             model_id: p.model,
@@ -3866,10 +3883,10 @@
           throw Error("整体路由正在使用此音色，请先调整路由。");
         const confirmed = await ask(
           operation === "delete_voice"
-            ? "删除云端音色？"
+            ? isBreezeLocal(p) ? "移除服务端缓存音色？" : "删除云端音色？"
             : "更新云端音色录音？",
           operation === "delete_voice"
-            ? `此操作会从平台账号删除 ${voice.id}，并移出本地收藏。`
+            ? isBreezeLocal(p) ? `从运行中的服务移除 ${voice.id}，并移出本地收藏。服务端已保存的 .breeze 文件会保留，重启服务时重新加载。` : `此操作会从平台账号删除 ${voice.id}，并移出本地收藏。`
             : `新录音将提交给 ${voice.id}，音色会重新进入平台审核。`,
         );
         showVoiceWorkspace();
@@ -5267,7 +5284,7 @@
           operation === "clone"
             ? "正在创建平台音色…"
             : operation === "voices"
-              ? "正在同步账号音色…"
+              ? "正在同步平台音色…"
               : "正在处理…",
         );
         updateSave();
@@ -5624,7 +5641,7 @@
         docs: () =>
           dialog(
             "平台文档",
-            `<p class="muted" style="font-size:12px;margin-bottom:14px">宿主隔离页面不能直接打开外部窗口。复制此链接，在浏览器中打开。</p><label class="field">文档链接<input id="docs-url" class="maibot-input input mono" readonly value="${h(preset(current()).docs)}"></label><button class="maibot-button maibot-button-primary key primary" data-action="copy-docs" style="margin-top:18px">复制文档链接</button>`,
+            `<p class="muted" style="font-size:12px;margin-bottom:14px">复制此链接，在浏览器中打开平台文档。</p><label class="field">文档链接<input id="docs-url" class="maibot-input input mono" readonly value="${h(isBreezeLocal(current()) ? preset(current()).local_docs : preset(current()).docs)}"></label><button class="maibot-button maibot-button-primary key primary" data-action="copy-docs" style="margin-top:18px">复制文档链接</button>`,
           ),
         "copy-docs": async () => {
           const input = $("#docs-url");
@@ -6096,7 +6113,7 @@
             )
           )
             parsed = value === "default" ? null : value === "true";
-          else if (["seed", "max_prompt_audio_length"].includes(option))
+          else if (["seed", "max_prompt_audio_length", "breeze_cpp_split_chars"].includes(option))
             parsed = el.value === "" ? null : Number(value);
           else if (
             parts[0] === "options" &&
@@ -6211,10 +6228,12 @@
           p.models.forEach((model) => {
             if (model.parameters) {
               model.parameters.options.breeze_api_mode = value;
+              if (value !== "self_hosted" && model.parameters.options.breeze_mode === "saved") model.parameters.options.breeze_mode = "reference";
               if (!cloud) { model.parameters.response_format = "wav"; model.parameters.speed = 1; }
             }
           });
           if (!cloud) { p.response_format = "wav"; p.speed = 1; }
+          if (value !== "self_hosted" && p.options.breeze_mode === "saved") p.options.breeze_mode = "reference";
           invalidateProfileLists(p.id);
           dirty(); render(); return;
         }

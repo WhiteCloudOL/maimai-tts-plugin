@@ -43,6 +43,7 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "endpoint": BREEZE_LOCAL_URL + "/audio/speech",
         "base_url": BREEZE_LOCAL_URL,
         "cloud_base_url": BREEZE_CLOUD_URL,
+        "local_docs": "https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp/blob/main/docs/windows-auth.md",
         "model": "breeze-tts-2",
         "voice": "",
         "models": BREEZE_MODELS,
@@ -53,7 +54,7 @@ CATALOG: Dict[str, Dict[str, Any]] = {
         "voices_url": "",
         "clone_url": "",
         "note": (
-            "本地API 使用参考录音与准确文字稿；官方在线使用已保存音色，支持账号音色、克隆和设计。"
+            "本地API 对接 Breeze-TTS-2.cpp 原版与鉴权排队版，支持参考录音、服务端音色和文字设计；官方在线支持账号音色、克隆和设计。"
             "API Key 选填，填写后使用 Bearer 鉴权。"
         ),
         "tone_hint": "支持自然语言风格与语调指令；固定语调直接使用配置，动态语调按允许列表解析。",

@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from ..domain.bailian import MINIMAX_LANGUAGES, MINIMAX_RATES, QWEN_AUDIO_MODELS, SPEECH_RATES, VOICE_LANGUAGES
 from ..domain.breeze import LANGUAGES as BREEZE_LANGUAGES
+from ..domain.breeze import CPP_PARAMETERS
 from ..domain.catalog import CATALOG
 from ..domain.compatibility import template_variables
 from ..domain.intonation import tone_capability, tone_choices
@@ -35,7 +36,7 @@ OPTION_FIELDS = {
                    "volc_language", "volc_dialect", "volc_silence_duration", "volc_tone_fidelity", "volc_emotion",
                    "volc_emotion_scale", "aigc_watermark", "latex_read", "pronunciation_tone", "enable_ssml"},
     "breeze": {"breeze_language_code", "breeze_guidance_scale", "breeze_volume", "breeze_speaker_boost", "breeze_transport",
-               "seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text"},
+               "seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text", *CPP_PARAMETERS},
     "mimo": {"optimize_text_preview", "reference_source", "reference_file", "reference_url"},
     "gpt_sovits": {"text_language", "prompt_language", "text_split_method", "top_k", "top_p", "temperature",
                    "reference_source", "reference_file", "reference_path", "reference_text"},
@@ -102,10 +103,11 @@ def parameter_schema(profile: Profile) -> Dict[str, Any]:
             speed_enabled = False
             formats = ["wav"]
             names = {"breeze_guidance_scale", "seed", "breeze_mode"}
+            names |= set(CPP_PARAMETERS)
             if profile.options.breeze_mode == "reference":
                 names |= {"reference_source", "reference_file", "reference_url", "reference_text"}
         else:
-            names -= {"seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text"}
+            names -= {"seed", "breeze_mode", "reference_source", "reference_file", "reference_url", "reference_text", *CPP_PARAMETERS}
             if profile.options.breeze_transport == "stream":
                 formats = ["wav", "mp3", "pcm"]
     if "reference_source" in names:
@@ -206,6 +208,8 @@ def apply_parameters(profile: Profile, parameters: Dict[str, Any]) -> Profile:
         raise APIError("INVALID_PARAMETER", "hot_fix 请使用 pronunciation 和 replace 字段")
     if prospective.kind == "volcengine" and prospective.options.enable_ssml and prospective.options.latex_read:
         raise APIError("INVALID_PARAMETER", "SSML 与 LaTeX 请分别启用")
+    if prospective.kind == "breeze" and prospective.options.breeze_api_mode == "self_hosted" and prospective.options.breeze_mode == "saved" and not prospective.voice:
+        raise APIError("INVALID_PARAMETER", "服务端音色模式请通过 voice_id 选择 Breeze C++ 音色")
     return prospective
 
 

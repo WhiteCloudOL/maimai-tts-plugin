@@ -85,7 +85,7 @@ class ProviderOptions(Model):
     openai_stream_format: Literal["audio", "sse"] = "audio"
     compatibility: Optional[CompatibilityOptions] = None
     breeze_api_mode: Literal["self_hosted", "cloud"] = "self_hosted"
-    breeze_mode: Literal["reference", "design", "plain"] = "reference"
+    breeze_mode: Literal["reference", "design", "plain", "saved"] = "reference"
     breeze_transport: Literal["sync", "stream", "async"] = "sync"
     breeze_guidance_scale: float = Field(default=1, ge=1, le=10)
     breeze_language_code: str = Field(default="", max_length=2)
@@ -96,6 +96,13 @@ class ProviderOptions(Model):
     breeze_voice_filter_language: str = Field(default="zh", max_length=2)
     breeze_voice_search: str = Field(default="", max_length=200)
     breeze_max_characters: int = Field(default=1000, ge=1, le=2000)
+    breeze_cpp_temperature: float = Field(default=0, ge=0)
+    breeze_cpp_top_k: int = Field(default=0, ge=0, le=2147483647)
+    breeze_cpp_top_p: float = Field(default=0, ge=0, le=1)
+    breeze_cpp_repetition_penalty: float = Field(default=0, ge=0)
+    breeze_cpp_split_chars: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    breeze_cpp_max_new_tokens: int = Field(default=0, ge=0, le=2147483647)
+    breeze_cpp_voice_id: str = Field(default="", max_length=64, pattern=r"^[A-Za-z0-9_-]*$")
     optimize_text_preview: bool = False
     optimize_instructions: bool = False
     language: str = Field(default="Auto", max_length=40)
@@ -569,6 +576,8 @@ class Profile(Model):
                 raise ValueError("请选择 Breeze 在线音色的语言")
             if self.options.breeze_voice_filter_language and self.options.breeze_voice_filter_language not in BREEZE_LANGUAGES:
                 raise ValueError("请选择 Breeze 同步音色的语言，或留空同步全部语言")
+            if self.options.breeze_mode == "saved" and self.options.breeze_api_mode != "self_hosted":
+                raise ValueError("服务端音色 ID 模式请使用 Breeze 本地API")
             if self.options.breeze_api_mode == "self_hosted":
                 if self.response_format != "wav" or self.speed != 1:
                     raise ValueError("Breeze 自托管返回 WAV，语速倍率保持 1，可通过风格描述控制节奏")
@@ -648,6 +657,10 @@ class Profile(Model):
             (item for item in self.voices if item.id == self.voice and item.model in ("", self.model)), None
         )
         if selected is None:
+            if self.kind == "breeze" and self.options.breeze_api_mode == "self_hosted" and self.voice:
+                data = self.model_dump()
+                data["options"]["breeze_mode"] = "saved"
+                return self._runtime_profile(data)
             return self
         if selected.clone_state != "ready":
             raise TTSError("此音色正在训练或训练失败，请在音色克隆页面查询状态后再使用")
@@ -666,6 +679,8 @@ class Profile(Model):
                 data["options"]["breeze_mode"] = "reference"
             elif selected.origin == "design":
                 data["options"]["breeze_mode"] = "design"
+            else:
+                data["options"]["breeze_mode"] = "saved"
         if selected.reference is None:
             return self._runtime_profile(data)
         reference = selected.reference

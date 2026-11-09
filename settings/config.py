@@ -9,7 +9,7 @@ class PluginSection(PluginConfigBase):
     __ui_icon__ = "package"
     enabled: bool = Field(default=True, description="启用麦麦TTS语音", json_schema_extra={"label": "启用插件"})
     config_version: str = Field(
-        default="2.0.2", description="配置版本", json_schema_extra={"label": "配置版本", "readonly": True}
+        default="2.0.3", description="配置版本", json_schema_extra={"label": "配置版本", "readonly": True}
     )
 
 

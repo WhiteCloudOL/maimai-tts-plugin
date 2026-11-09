@@ -8,6 +8,7 @@ import json
 import secrets
 
 from ..domain.compatibility import template_variables
+from ..domain.breeze import CPP_PARAMETERS
 from ..domain.breeze_control import boundary_pauses
 from ..domain.models import Profile
 
@@ -36,7 +37,7 @@ class CacheKeys:
 
     def speech(self, profile: Profile, text: str) -> Optional[str]:
         options = profile.options
-        if profile.kind == "breeze" and options.breeze_api_mode == "self_hosted" and options.breeze_mode == "reference":
+        if profile.kind == "breeze" and options.breeze_api_mode == "self_hosted" and options.breeze_mode in {"reference", "saved"}:
             return None
         # 这些请求依赖动态文件、远端参考音频或外部加载的权重，逐次读取实际来源。
         if profile.kind == "gpt_sovits" or (profile.kind == "mimo" and "voiceclone" in profile.model):
@@ -62,6 +63,7 @@ class CacheKeys:
             }
         )
         management = {
+            "breeze_cpp_voice_id",
             "breeze_voice_type",
             "breeze_voice_filter_language",
             "breeze_voice_search",
@@ -94,6 +96,8 @@ class CacheKeys:
         }
         if profile.kind not in {"siliconflow", "mimo", "compatible"}:
             management.update(key for key in values["options"] if key.startswith("reference_"))
+        if profile.kind != "breeze" or options.breeze_api_mode == "cloud":
+            management.update(CPP_PARAMETERS)
         for key in management:
             values["options"].pop(key, None)
         return self.digest({"profile": values, "text": text})

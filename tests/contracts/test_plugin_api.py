@@ -606,7 +606,7 @@ async def test_breeze_local_seed_and_style_reach_multipart(serve, service):
         result = await api.call("advanced", text=TEXT, control={"style": "轻柔"},
                                 parameters={"seed": 17, "breeze_mode": "design", "breeze_guidance_scale": 2})
         assert result["ok"], result
-        assert calls[0] == {"text": TEXT, "cfg_scale": "2.0", "seed": "17", "instruction": "轻柔"}
+        assert {key: calls[0][key] for key in ("text", "cfg_scale", "seed", "instruction")} == {"text": TEXT, "cfg_scale": "2.0", "seed": "17", "instruction": "轻柔"}
         assert result["data"]["audio"]["parameters"]["seed"] == 17
     finally:
         await api.close()

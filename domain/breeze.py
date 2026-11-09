@@ -1,8 +1,16 @@
 """Breeze 自托管与官方在线接口的共同参数范围。"""
 
-LOCAL_BASE_URL = "http://127.0.0.1:7860/v1"
+LOCAL_BASE_URL = "http://127.0.0.1:8080/v1"
 CLOUD_BASE_URL = "https://api.breeze.blue/v1"
 MODELS = ["breeze-tts-2", "breeze-tts-2-multilingual"]
+CPP_PARAMETERS = {
+    "breeze_cpp_temperature": "temperature",
+    "breeze_cpp_top_k": "top_k",
+    "breeze_cpp_top_p": "top_p",
+    "breeze_cpp_repetition_penalty": "repetition_penalty",
+    "breeze_cpp_split_chars": "split_chars",
+    "breeze_cpp_max_new_tokens": "max_new_tokens",
+}
 LANGUAGES = [
     "af",
     "ar",
