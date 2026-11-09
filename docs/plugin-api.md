@@ -237,7 +237,7 @@ description = await self.call_tts(
 
 参考录音按来源配置：`reference_source="url"` 搭配 `reference_url`；`reference_source="file"` 搭配已导入插件录音目录中的相对路径 `reference_file`；GPT-SoVITS 的 `reference_source="server"` 搭配 TTS 服务端路径 `reference_path`。Breeze 参考声音使用 `breeze_mode="reference"` 和准确的 `reference_text`；硅基流动使用 `reference_enabled=True` 与录音文字稿。MiMo voiceclone 提供对应的参考录音字段。
 
-Breeze 本地API 对接 Breeze-TTS-2.cpp 原版及鉴权排队版，声音来源可选 `reference`、`design`、`plain`、`saved`。填写服务端 `voice_id` 时自动采用保存的音色；已收藏的参考录音与文字设计按各自配置解析。风格通过 `control.style` 或自动模式设置，`seed` 控制随机种子；`breeze_cpp_split_chars=null` 沿用服务端分段配置，0 使用整段生成。参数与连接步骤见 [BreezeTTS 本地API配置](breeze-local-api.md)。MiniMax 的 `minimax_normalization="quality"` 对应 Speech 2.6 / 2.8 的 HTTP 模式，流式模式提供 `basic` 归一化。各组合的枚举和范围以当次 `tts_describe` 为准。
+Breeze 本地API 对接 Breeze-TTS-2.cpp 原版及我维护的鉴权排队版，声音来源可选 `reference`、`design`、`plain`、`saved`。填写服务端 `voice_id` 时自动采用保存的音色；已收藏的参考录音与文字设计按各自配置解析。风格通过 `control.style` 或自动模式设置，`seed` 控制随机种子；`breeze_cpp_split_chars=null` 沿用服务端分段配置，0 使用整段生成。参数与连接步骤见 [BreezeTTS 本地API配置](breeze-local-api.md)。MiniMax 的 `minimax_normalization="quality"` 对应 Speech 2.6 / 2.8 的 HTTP 模式，流式模式提供 `basic` 归一化。各组合的枚举和范围以当次 `tts_describe` 为准。
 
 ### 4.2 `tts_validate`
 

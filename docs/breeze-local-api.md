@@ -5,19 +5,19 @@
 | 项目 | 接入特点 | BaseURL 示例 |
 | --- | --- | --- |
 | [HoppouAI/Breeze-TTS-2.cpp](https://github.com/HoppouAI/Breeze-TTS-2.cpp) | GGUF 推理、服务端音色库、原生表单与 PCM 流 | `http://127.0.0.1:8080/v1` |
-| [WhiteCloudOL/Breeze-TTS-2.cpp](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp) | Bearer 鉴权、FIFO 排队，沿用相同合成与音色接口 | `http://127.0.0.1:7863/v1` |
+| [我维护的鉴权排队版](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp) | Bearer 鉴权、FIFO 排队，沿用相同合成与音色接口 | `http://127.0.0.1:7863/v1` |
 
 ## 1. 平台连接
 
 1. 添加 BreezeTTS 服务商，接入方式选择「本地API」。
 2. BaseURL 填写服务端地址及 `/v1`，例如 `http://127.0.0.1:7863/v1`。
-3. 使用鉴权版时，在 API Key 中填写服务端配置的一把有效密钥。插件自动添加 `Authorization: Bearer <密钥>`。
+3. 使用我维护的鉴权排队版时，在 API Key 中填写服务端配置的一把有效密钥。插件自动添加 `Authorization: Bearer <密钥>`。
 4. 添加 `breeze-tts-2` 模型。模型标识用于插件路由与配置管理，服务端实际使用启动时加载的 GGUF。
 5. 在整体语音路由中选用这个服务商与模型。
 
-原版可使用空 API Key。fork 的多把密钥由服务端统一配置，插件在每次合成、音色同步及音色管理请求中发送平台保存的那一把密钥。
+原版可使用空 API Key。我维护的鉴权排队版的多把密钥由服务端统一配置，插件在每次合成、音色同步及音色管理请求中发送平台保存的那一把密钥。
 
-WhiteCloudOL fork 的 Windows 启动脚本默认使用鉴权端口 `7863`，原版入口使用 `7865`。端口以实际启动参数为准。
+我维护的鉴权排队版的 Windows 启动脚本默认使用鉴权端口 `7863`，原版入口使用 `7865`。端口以实际启动参数为准。
 
 ## 2. 声音来源
 
@@ -74,12 +74,12 @@ CFG=1 使用基础引导。需要更强的语气和事件表现时，可以从 2
 
 ## 4. 排队、超时与缓存
 
-插件按服务实例依次提交合成和参考录音编码。fork 会将来自其他客户端的任务一起放入服务端 FIFO 队列，等待空闲槽位后执行。原版在槽位已满时返回 HTTP 409，插件将状态和原因回传到调用方。
+插件按服务实例依次提交合成和参考录音编码。我维护的鉴权排队版会将来自其他客户端的任务一起放入服务端 FIFO 队列，等待空闲槽位后执行。原版在槽位已满时返回 HTTP 409，插件将状态和原因回传到调用方。
 
 「运行限制 → 平台请求超时」覆盖本次等待和平台处理时间。存在其他客户端排队时，可按任务长度设置为 300 秒等合适预算；整条合成链沿用插件的 540 秒总预算。
 
-取消任务会关闭当前客户端的等待或响应连接，释放插件的实例串行名额。fork 按自身调度规则移除断线的等待请求。
+取消任务会关闭当前客户端的等待或响应连接，释放插件的实例串行名额。我维护的鉴权排队版按自身调度规则移除断线的等待请求。
 
 动态参考录音与服务端音色每次使用实际来源合成，音色更新后可以即时取得新的声音。原生声音与文字设计按正文、风格、CFG、种子及 C++ 参数区分合成缓存。合成缓存和发送去重分别管理，相同 API 请求编号继续复用该次执行结果与发送回执。
 
-服务端接口依据：[原项目服务端文档](https://github.com/HoppouAI/Breeze-TTS-2.cpp/blob/main/docs/server.md)、[fork 的鉴权与排队说明](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp/blob/main/docs/windows-auth.md)。
+服务端接口依据：[原项目服务端文档](https://github.com/HoppouAI/Breeze-TTS-2.cpp/blob/main/docs/server.md)、[我维护的鉴权排队版说明](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp/blob/main/docs/windows-auth.md)。

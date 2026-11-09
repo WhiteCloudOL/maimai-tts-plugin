@@ -168,14 +168,20 @@
 
 <br>
 
-- **接入方式**：在平台连接中选择 **本地API** 或 **Breeze 官方在线**（`https://api.breeze.blue/v1`）。本地API 可采用 [HoppouAI/Breeze-TTS-2.cpp](https://github.com/HoppouAI/Breeze-TTS-2.cpp) 原项目（BaseURL 示例 `http://127.0.0.1:8080/v1`），或支持串行排队与 Bearer 鉴权的 [WhiteCloudOL fork](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp)（鉴权入口示例 `http://127.0.0.1:7863/v1`）。鉴权版在 API Key 中填写密钥本身。
-- **本地音色与参数**：支持同步服务端音色库、直接填写音色 ID、创建服务端参考音色、动态参考录音及文字设计；MP3 / WAV 录音由插件转换为标准 WAV 上传。模型设置提供 CFG、随机种子及 C++ 采样与长文参数。详细步骤见 [BreezeTTS 本地API配置](docs/breeze-local-api.md)。
+本地API 可采用两个服务端，区别在于是否有鉴权功能与排队功能：  
+官方原版：[HoppouAI/Breeze-TTS-2.cpp](https://github.com/HoppouAI/Breeze-TTS-2.cpp)  
+我维护的鉴权排队版：[WhiteCloudOL/Breeze-TTS-2.cpp](https://github.com/WhiteCloudOL/Breeze-TTS-2.cpp)   
+两种服务端均可使用，其中官方无需填写密钥，我的版本则包含鉴权，需要设置并填入API-KEY  
+**详细步骤**见 [BreezeTTS 本地API配置](docs/breeze-local-api.md)  
+
+- **接入方式**：在平台连接中选择 **本地API** 或 **Breeze 官方在线**（`https://api.breeze.blue/v1`）。
+- **本地音色与参数**：支持同步服务端音色库、直接填写音色 ID、创建服务端参考音色、动态参考录音及文字设计；MP3 / WAV 录音由插件转换为标准 WAV 上传。模型设置提供 CFG、随机种子及 C++ 采样与长文参数。
 - **在线音色目录**：默认同步中文音色，可在模型参数中修改「同步音色语言」并填写关键词，按名称或声音描述筛选。每次最多同步 1000 项；选择全部语言时建议配合关键词。目录筛选不改变已收藏音色，也不影响合成语种。
 - **音色与 CFG 建议**：
   - **原声复刻**：在「参考音色」中配置本地录音与完整准确的文字稿，语调选关闭，**CFG 建议设为 `1`**。
   - **语调引导 / 声音设计**：开启固定/动态语调，或使用文字描述进行「声音设计」时，本地API 的 CFG 可从 `2–3` 开始调整；在线服务可使用 `1` 或 `4`。
 - **局部音频事件与自由语气（动态语调专属）**：
-  开启「动态语调」后，麦麦可在台词中穿插控制标记，插件会自动分段合成并按标点自然补齐静音间隔（100ms~300ms）后合并发送，聊天文字会自动隐藏这些标记：
+  开启「动态语调」后，麦麦可在台词中穿插控制标记：
   - **音频事件**：如 `[轻笑]`、`[叹气]`、`[耳语]`、`[唱歌]`；本地API 英文使用 `(laugh)` 等，在线服务使用 `(laughs)` 等。
   - **停顿引导**：中文 `[停顿]`、英文 `(pause)`。
   - **自由语气**：如 `[语气:轻声而温柔][轻笑]你终于来了。[停顿][语气:认真而坚定]接下来我们一起面对。`（每条回复最多 8 个自由语气标记）。
@@ -289,7 +295,6 @@
 
 ---
 
-## 🩷 问题反馈 & 开源许可
+## ✔️ 开源许可
 
-- **问题反馈与建议**：[GitHub Issues](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/new/choose) ｜ **交流 QQ 群**：[637174573](https://qm.qq.com/q/3f2bdkDsyW)
-- **开源许可**：本项目基于 [AGPL-3.0](LICENSE) 协议开源。
+- 本项目基于 [AGPL-3.0](LICENSE) 协议开源。
