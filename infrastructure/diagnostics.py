@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from logging import DEBUG, ERROR, INFO, WARNING, Logger
 from pathlib import Path
 from traceback import extract_tb
-from typing import Any, Callable, Iterable, Iterator, Tuple
+from typing import Any, Callable, Iterable, Iterator, Optional, Tuple
 from urllib.parse import quote, quote_plus, urlsplit
 from uuid import uuid4
 
@@ -19,10 +19,10 @@ _LEVELS = {"DEBUG": DEBUG, "INFO": INFO, "WARNING": WARNING, "ERROR": ERROR}
 _URL = re.compile(r"(?:https?|wss?)://[^\s\"'<>]+", re.IGNORECASE)
 
 
-def redact_secrets(message: str, values: Iterable[str]) -> str:
+def redact_secrets(message: str, values: Iterable[str], *, include_private: bool = True) -> str:
     """先隐藏完整凭据及常见编码形式，再由调用方截断，避免泄露较长密钥的前缀。"""
     variants = set()
-    for value in (*_PRIVATE.get(), *values):
+    for value in (*(_PRIVATE.get() if include_private else ()), *values):
         if value:
             variants.update((value, quote(value, safe=""), quote_plus(value), json.dumps(value)[1:-1]))
     # 多个账号的密钥可能互为前缀，先替换长值以免较短值破坏完整匹配。
@@ -46,15 +46,19 @@ def trace_scope(private_values: Iterable[str] = ()) -> Iterator[str]:
 
 
 class Diagnostics:
-    def __init__(self, logger: Logger, level: str, redact: Callable[[str], str]) -> None:
+    def __init__(
+        self, logger: Logger, level: str, redact: Callable[[str], str],
+        speech_redact: Optional[Callable[[str], str]] = None,
+    ) -> None:
         self.logger = logger
         self.level = _LEVELS[level]
         self.redact = redact
+        self.speech_redact = speech_redact if speech_redact is not None else redact
 
-    def _safe(self, value: Any) -> Any:
+    def _safe(self, value: Any, *, speech_content: bool = False) -> Any:
         if not isinstance(value, str):
             return value
-        value = self.redact(redact_secrets(value, _PRIVATE.get()))
+        value = self.speech_redact(value) if speech_content else self.redact(redact_secrets(value, _PRIVATE.get()))
 
         # URL 仅保留协议与主机，去掉用户信息、路径、签名和查询参数。
         def origin(match: re.Match) -> str:
@@ -66,13 +70,14 @@ class Diagnostics:
 
         value = _URL.sub(origin, value)
         value = re.sub(r"data:audio/[^\s]+", "[音频已隐藏]", value, flags=re.IGNORECASE)
-        return " ".join(value.split())[:600]
+        return value[:16384] if speech_content else " ".join(value.split())[:600]
 
     def emit(self, level: int, event: str, **fields: Any) -> None:
         if level < self.level or not self.logger.isEnabledFor(level):
             return
         details = " ".join(
-            f"{key}={json.dumps(self._safe(value), ensure_ascii=False)}" for key, value in fields.items()
+            f"{key}={json.dumps(self._safe(value, speech_content=key in {'text', 'instructions'}), ensure_ascii=False)}"
+            for key, value in fields.items()
         )
         self.logger.log(level, "[TTS] %s trace=%s %s", event, _TRACE.get() or "-", details)
 

@@ -41,7 +41,7 @@ class TTSService:
         self.store = store
         self.settings = settings
         self.logger = logger
-        self.log = Diagnostics(logger, settings.log_level, store.redact)
+        self.log = Diagnostics(logger, settings.log_level, store.redact, store.redact_text)
         self.http = Transport(settings, store.path.parent, self.log)
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
         self._active: Set[asyncio.Task] = set()
@@ -353,8 +353,8 @@ class TTSService:
                 speech_text = breeze_input.display_text if breeze_input is not None and selected.kind != "breeze" else speech_text
                 request_audio = partial(
                     self.execute,
-                    partial(self._synthesize_breeze, client, requests) if requests is not None
-                    else partial(client.synthesize, selected, speech_text),
+                    partial(self._synthesize_breeze, client, requests, tone=emotion) if requests is not None
+                    else partial(self._request_synthesis, client, selected, speech_text, tone=emotion),
                 )
                 key = (
                     self.cache_keys.breeze(requests) if requests is not None
@@ -370,7 +370,7 @@ class TTSService:
                     refresh=refresh_cache,
                 )
                 audio = cached.value
-                self.log.debug("合成结果缓存", provider_id=provider_id, model=selected.model, result=cached.source)
+                self.log.info("合成结果缓存", provider_id=provider_id, model=selected.model, result=cached.source)
                 if delivery_format is not None:
                     try:
                         audio = await self.prepare_delivery(
@@ -414,11 +414,39 @@ class TTSService:
             )
         raise TTSError("所有已选服务商均合成失败：" + "；".join(failures))
 
-    async def _synthesize_breeze(self, client: Provider, requests: List[Tuple[Profile, str]]) -> Audio:
+    async def _request_synthesis(self, client: Provider, profile: Profile, text: str, *, tone: str = "") -> Audio:
+        """记录实际平台调用；缓存命中在此边界外处理，每个 Breeze 区段分别记录。"""
+        started = monotonic()
+        self.log.info(
+            "TTS 平台请求", provider=profile.name, provider_id=profile.id, kind=profile.kind,
+            model=profile.model, voice=profile.voice, text=self.store.redact_text(text, (profile.api_key,)),
+            instructions=self.store.redact_text(profile.instructions, (profile.api_key,)),
+            tone_mode=profile.tone.mode, tone=tone,
+            native_emotion=profile.options.minimax_emotion if profile.kind in {"minimax", "bailian_minimax"}
+            else profile.options.volc_emotion if profile.kind == "volcengine" else "",
+            format=profile.response_format, speed=profile.speed, sample_rate=profile.options.sample_rate,
+            resource_id=profile.options.resource_id, seed=profile.options.seed,
+        )
+        try:
+            audio = await client.synthesize(profile, text)
+        except asyncio.CancelledError:
+            self.log.info("TTS 平台请求取消", provider_id=profile.id, elapsed_ms=round((monotonic() - started) * 1000))
+            raise
+        except Exception as exc:
+            self.log.warning("TTS 平台请求失败", provider_id=profile.id, error=str(exc),
+                             elapsed_ms=round((monotonic() - started) * 1000))
+            raise
+        self.log.info("TTS 平台请求完成", provider_id=profile.id, audio_bytes=len(audio.data),
+                      elapsed_ms=round((monotonic() - started) * 1000), request_id=audio.request_id)
+        return audio
+
+    async def _synthesize_breeze(
+        self, client: Provider, requests: List[Tuple[Profile, str]], *, tone: str = "",
+    ) -> Audio:
         parts: List[Audio] = []
         total = 0
         for profile, text in requests:
-            audio = await client.synthesize(profile, text)
+            audio = await self._request_synthesis(client, profile, text, tone=tone)
             total += len(audio.data)
             if total > self.http.limit:
                 raise TTSError("Breeze 分段合成音频超过大小上限")

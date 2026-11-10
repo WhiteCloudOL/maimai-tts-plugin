@@ -15,6 +15,8 @@ from ..domain.intonation import parse_tone_tag
 from ..domain.models import TTSError
 from ..infrastructure.voice_codec import voice_segment
 from ..services.intonation import validate_requested_direction, validate_requested_tone
+from ..services.format_correction import correct_speech_arguments
+from ..services.speech_input import validate_speech_arguments
 from .adaptive_tone import ProbabilityToneAdapter
 
 
@@ -26,6 +28,7 @@ class ProbabilityReplyState:
     should_convert: bool
     expires_at: float
     breeze_controls: bool = False
+    operation_deadline: float = 0
 
 
 @dataclass
@@ -126,7 +129,7 @@ class ProbabilityMixin:
         name="prepare_probability_tts_reply",
         description="按整轮 LLM 正文检查长度并抽取一次语音概率",
         mode=HookMode.BLOCKING,
-        timeout_ms=1000,
+        timeout_ms=600000,
     )
     async def prepare_probability_tts_reply(
         self,
@@ -137,6 +140,7 @@ class ProbabilityMixin:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         del hook_name
+        started = monotonic()
         parsed = parse_tone_tag(response)
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
         targeted = self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
@@ -165,6 +169,30 @@ class ProbabilityMixin:
                         validate_requested_direction(profile, parsed.direction)
                 except TTSError as exc:
                     tag_error = str(exc)
+        if not tag_error and (parsed.tagged or breeze_controls):
+            profile = self.primary_tone_profile()
+            if profile is not None:
+                try:
+                    validate_speech_arguments(profile, {"text": response}, self.service.settings.max_text_length)
+                except TTSError as exc:
+                    tag_error = str(exc)
+        if tag_error and self.config.plugin.enabled:
+            profile = self.primary_tone_profile()
+            if profile is not None:
+                revision = self.store.config.revision
+                result = await correct_speech_arguments(
+                    self.ctx, self.features, profile, {"text": response}, self.service.log,
+                    automatic=True, max_text_length=self.service.settings.max_text_length,
+                )
+                if result.arguments is not None and self.store.config.revision == revision:
+                    response = result.arguments["text"]
+                    parsed = parse_tone_tag(response)
+                    breeze = parse_breeze_text(parsed.text)
+                    breeze_controls = profile.kind == "breeze" and breeze.marked
+                    display_text = breeze.display_text if breeze_controls else parsed.text
+                    tag_error = ""
+                else:
+                    tag_error = result.error or "语调纠正期间配置已变化，保留原文"
         if tag_error:
             self.service.log.warning("动态语调标签校验失败，保留纯文本", stream_id=session_id, error=tag_error)
 
@@ -194,6 +222,7 @@ class ProbabilityMixin:
                     should_convert=should_convert,
                     expires_at=monotonic() + 600,
                     breeze_controls=breeze_controls,
+                    operation_deadline=started + 540,
                 )
         self.service.log.debug(
             "整轮语音判定",
@@ -207,7 +236,9 @@ class ProbabilityMixin:
         if not parsed.tagged and not breeze_controls:
             return {"action": "continue"}
         modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args)
-        modified["response"] = response if should_convert else (display_text or "语音语调标签格式有误，请检查语调设置。")
+        if not should_convert and not display_text.strip():
+            return {"action": "abort", "custom_result": {"reason": tag_error or "控制标记后缺少可见正文"}}
+        modified["response"] = response if should_convert else display_text
         if should_convert:
             # 语调与局部事件随这一条回复交给扩展；正文保持完整，避免拆分或错字处理损坏控制标签。
             modified["skip_post_process"] = True
@@ -239,7 +270,14 @@ class ProbabilityMixin:
         self._remove_expired_probability_states()
         # 先消费本次回复的判定，再执行耗时合成；并发回复与普通发送都无法借用这个结果。
         state = self._probability_reply_states.pop(reply_id, None)
-        cleaned = self._clean_probability_messages(messages, breeze=state is not None and state.breeze_controls)
+        pairs = [
+            (original, clean)
+            for original in messages
+            for clean in self._clean_probability_messages([original], breeze=state is not None and state.breeze_controls)
+        ]
+        cleaned = [clean for _, clean in pairs]
+        if not cleaned:
+            raise TTSError("语音回复清理控制标记后缺少可见内容")
         if (
             not self.config.plugin.enabled
             or not self.features.probability_enabled
@@ -259,7 +297,7 @@ class ProbabilityMixin:
         scope_allowed = self.features.probability_group_enabled if group is True else (
             self.features.probability_private_enabled if group is False else False
         )
-        original_texts = [self._extract_probability_text(item["segments"]) for item in messages]
+        original_texts = [self._extract_probability_text(original["segments"]) for original, _ in pairs]
         if not scope_allowed or any(value is None for value in original_texts):
             self.service.log.debug(
                 "跳过 LLM 回复语音转换",
@@ -271,10 +309,14 @@ class ProbabilityMixin:
         converted = deepcopy(cleaned)
         try:
             # 整组消息共享有界等待；全部合成完成后才交回 Host，失败时整轮保留文字。
-            await asyncio.wait_for(self._convert_probability_messages(converted, original_texts), timeout=540)
+            budget = max(0, state.operation_deadline - monotonic()) if state.operation_deadline else 540
+            await asyncio.wait_for(self._convert_probability_messages(converted, original_texts), timeout=budget)
         except (TTSError, asyncio.TimeoutError) as exc:
             error = "整轮语音合成超时" if isinstance(exc, asyncio.TimeoutError) else self._safe_error_message(exc)
             self.service.log.warning("自动语音失败，发送原文字", stream_id=session_id, reply_id=reply_id, error=error)
+            return {"messages": cleaned} if cleaned != messages else {}
+        except Exception as exc:
+            self.service.log.unexpected("自动语音执行异常，保留原文", exc, stream_id=session_id, reply_id=reply_id)
             return {"messages": cleaned} if cleaned != messages else {}
         self.service.log.info(
             "已将 LLM 语音回复交给发送链", stream_id=session_id, reply_id=reply_id, segments=len(converted)
@@ -399,14 +441,35 @@ class ProbabilityMixin:
     @staticmethod
     def _clean_probability_messages(messages: List[Dict[str, Any]], *, breeze: bool = False) -> List[Dict[str, Any]]:
         cleaned = deepcopy(messages)
+        result: List[Dict[str, Any]] = []
         for message in cleaned:
+            segments: List[Dict[str, Any]] = []
+            pending: List[Dict[str, Any]] = []
+
+            def flush() -> None:
+                if not pending:
+                    return
+                text = "".join(segment["data"] for segment in pending)
+                parsed = parse_tone_tag(text)
+                display_text = parse_breeze_text(parsed.text).display_text if breeze else parsed.text
+                if parsed.tagged or display_text != text:
+                    if display_text.strip():
+                        segments.append(dict(pending[0], data=display_text))
+                else:
+                    segments.extend(pending)
+                pending.clear()
+
             for segment in message["segments"]:
                 if segment.get("type") == "text":
-                    parsed = parse_tone_tag(segment["data"])
-                    display_text = parse_breeze_text(parsed.text).display_text if breeze else parsed.text
-                    if parsed.tagged or display_text != segment["data"]:
-                        segment["data"] = display_text or "语音语调标签格式有误，请检查语调设置。"
-        return cleaned
+                    pending.append(segment)
+                else:
+                    flush()
+                    segments.append(segment)
+            flush()
+            if any(segment.get("type") != "reply" for segment in segments):
+                message["segments"] = segments
+                result.append(message)
+        return result
 
     def _is_probability_text_length_allowed(self, text: str) -> bool:
         maximum = min(self.features.probability_max_text_length, self.config.runtime.max_text_length)

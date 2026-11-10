@@ -1909,7 +1909,7 @@
       </main>
       <footer class="statusbar">
         <span
-          >MAIMAI TTS / 2.2.0 <span aria-hidden="true">·</span>
+          >MAIMAI TTS / 2.2.1 <span aria-hidden="true">·</span>
           <span id="footer-state">CONNECTING</span></span
         ><span>VOICE, WITH CHARACTER.</span
         ><span class="vents" aria-hidden="true"></span>
@@ -4914,7 +4914,7 @@
           options = [["utils", "utils（默认）"], ...state.llmTasks.filter((task) => task !== "utils").map((task) => [task, task])];
         if (f.probability_tone_task && !options.some(([id]) => id === f.probability_tone_task))
           options.push([f.probability_tone_task, `当前任务 / ${f.probability_tone_task}（请核对宿主配置）`]);
-        return `<div class="form-grid">${selectField("feature.probability_tone_task", "LLM 模型任务", f.probability_tone_task || "utils", options, "服务商与具体模型沿用所选任务，建议为该任务配置低延迟、非推理模型。")}${field("feature.probability_tone_timeout", "LLM 超时（秒）", f.probability_tone_timeout ?? 60, "每次请求默认 60 秒，可设置 1–300 秒。", "number")}${field("feature.probability_tone_retries", "LLM 重试次数", f.probability_tone_retries ?? 3, "失败后默认再试 3 次，0 表示不重试，可设置 0–10 次。", "number")}</div><div class="flex-wrap" style="margin-top:12px"><button type="button" class="maibot-button key small" data-action="refresh-llm-tasks" ${state.llmTasksLoading ? "disabled" : ""}>${state.llmTasksLoading ? "正在读取任务…" : "刷新 LLM 任务列表"}</button><small>沿用 MaiBot 的模型凭据，插件不保存 LLM 密钥。</small></div>${state.llmTasksError ? `<p class="error-panel" role="alert" style="margin-top:12px">${h(state.llmTasksError)}</p>` : ""}`;
+        return `<div class="form-grid">${selectField("feature.probability_tone_task", "LLM 模型任务", f.probability_tone_task || "utils", options, "服务商与具体模型沿用所选任务，建议为该任务配置低延迟、非推理模型。")}${field("feature.probability_tone_timeout", "LLM 超时（秒）", f.probability_tone_timeout ?? 60, "每次请求默认 60 秒，可设置 1–300 秒。", "number")}${selectField("feature.probability_tone_retries", "LLM 调用重试次数", f.probability_tone_retries ?? 2, [[0, "0 次（关闭重试）"], [1, "1 次"], [2, "2 次（默认）"], [3, "3 次"], [4, "4 次"], [5, "5 次"]], "调用失败与参数校验失败共用次数，默认重试 2 次，最多 5 次；失败后停止 TTS 并保留原文本。")}</div><div class="flex-wrap" style="margin-top:12px"><button type="button" class="maibot-button key small" data-action="refresh-llm-tasks" ${state.llmTasksLoading ? "disabled" : ""}>${state.llmTasksLoading ? "正在读取任务…" : "刷新 LLM 任务列表"}</button><small>沿用 MaiBot 的模型凭据，插件不保存 LLM 密钥。</small></div>${state.llmTasksError ? `<p class="error-panel" role="alert" style="margin-top:12px">${h(state.llmTasksError)}</p>` : ""}`;
       }
       async function loadProbabilityToneTasks(force = false) {
         if (state.llmTasksLoading || (state.llmTasksLoaded && !force)) return;
@@ -5004,7 +5004,7 @@
           ${toggleField("feature.probability_keep_text", "概率语音同时保留文字", f.probability_keep_text, "每段先发文字，再单独发送对应语音。")}
           ${toggleField("feature.probability_quote_keep_text", "引用回复保留文本", f.probability_quote_keep_text, "先发送引用卡片与回复文字，再单独发送语音；关闭后引用回复使用文字。")}
           ${toggleField("feature.probability_tone_enabled", "启用 LLM 语调自适应", f.probability_tone_enabled, "仅对动态语调路由生效；开启时检查模型与音色，并可同步启用动态语调。使用下方的语音辅助 LLM。")}`);
-        const helper = card("语音辅助 LLM", "概率语音自适应与插件 API 自动模式共用。", `
+        const helper = card("语音辅助 LLM", "概率语音自适应、格式纠正与插件 API 自动模式共用。", `
           <div id="probability-tone-options">${probabilityToneOptions()}</div>`);
         const api = card("插件 API", "供其他 MaiBot 插件查询、合成和发送语音。", `
           ${toggleField("feature.api_enabled", "启用插件 API", f.api_enabled, "通过 MaiBot 插件 SDK 调用，支持自动语气和高级模型参数。")}
@@ -6170,6 +6170,7 @@
             : el.type === "number"
               ? Number(el.value)
               : el.value;
+        if (key === "feature.probability_tone_retries") value = Number(value);
         if (key === "name") {
           value = value.replace(/\s+/gu, "");
           el.value = value;

@@ -1,7 +1,7 @@
 """抽中概率语音后按实际路由分类；一次回复内复用决定。"""
 
 from maibot_sdk.context import PluginContext
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
 import json
@@ -81,8 +81,8 @@ class ProbabilityToneAdapter:
             if profile.kind == "breeze" and not parse_breeze_text(self.text).marked
             else {}
         )
-        feedback = ""
-        attempts = self.features.probability_tone_retries + 1
+        failures: List[Tuple[str, str]] = []
+        attempts = 1 + self.features.probability_tone_retries
         # 所有原文共用同一路由的 system 前缀；已有标签的约束和重试原因追加在 user 消息后。
         prompt = adaptive_prompt(
             self.features.tone_prompt_language,
@@ -114,7 +114,8 @@ class ProbabilityToneAdapter:
                     "en": "The dialogue already has local controls. Preserve them; omit events or return an empty array.",
                     "ja": "本文には局所的な制御があるため維持し、eventsは省略するか空配列にする。",
                 }[self.features.tone_prompt_language]})
-            if feedback:
+            for rejected, feedback in failures:
+                messages.append({"role": "assistant", "content": rejected})
                 messages.append({"role": "user", "content": adaptive_feedback(self.features.tone_prompt_language, feedback)})
             try:
                 # 同时设置 RPC 与外层预算，避免 SDK 默认 RPC 超时提前截断用户配置。
@@ -148,8 +149,8 @@ class ProbabilityToneAdapter:
                         validate_direction(profile, decision.direction)
                     return decision
                 except TTSError as exc:
-                    # 重试附带协议校验原因，避免对同一格式错误重复发送相同提示；不回传或记录模型原文。
-                    feedback = str(exc)
+                    # 原始规则与正文保持稳定，失败输出及校验原因形成后续纠正消息。
+                    failures.append((response, str(exc)))
                     raise
             except asyncio.TimeoutError:
                 self.log.warning("语调自适应超时", purpose=self.purpose, timeout_seconds=timeout, attempt=attempt, attempts=attempts)
@@ -160,7 +161,6 @@ class ProbabilityToneAdapter:
                 self.log.unexpected("语调 LLM 调用异常", exc, purpose=self.purpose, attempt=attempt, attempts=attempts)
             if attempt < attempts:
                 await asyncio.sleep(0.25 * attempt)
-        if self.required:
-            raise TTSOperationError("LLM_ERROR", "语调自适应重试已耗尽，请核对语音辅助 LLM 的配置与调用日志")
-        self.log.warning("概率语音语调自适应重试已耗尽，使用路由默认语调", attempts=attempts)
-        return None
+        self.log.warning("语调自适应重试结束，停止本次 TTS", purpose=self.purpose,
+                         retries=attempt - 1, max_retries=self.features.probability_tone_retries)
+        raise TTSOperationError("LLM_ERROR", "语调自适应未完成，已停止本次语音合成并保留正文")

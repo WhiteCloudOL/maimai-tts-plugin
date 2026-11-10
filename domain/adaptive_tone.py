@@ -32,9 +32,9 @@ ToneAdapter = Callable[[Profile], Awaitable[Optional[ToneDecision]]]
 
 def adaptive_feedback(language: str, error: str) -> str:
     return {
-        "zh": "上次输出校验失败：{error}。请按输出协议和允许列表重新返回 JSON，只为前面的正文选择表达。",
-        "en": "The previous output failed validation: {error}. Return corrected JSON following the protocol and allowed IDs for the preceding dialogue.",
-        "ja": "前回の出力は検証に失敗した：{error}。出力規則と許可IDに従い、前の本文に対するJSONを返す。",
+        "zh": "上次输出校验失败：{error}。请根据前面的原始正文、输出协议和当前平台允许列表，重新生成用于 TTS 的语调参数 JSON。只返回参数，不返回报错说明或改写后的正文。",
+        "en": "The previous output failed validation: {error}. Regenerate TTS delivery parameter JSON using the original dialogue, output protocol and current platform IDs. Return parameters only, without error explanations or rewritten dialogue.",
+        "ja": "前回の出力は検証に失敗した：{error}。元の本文、出力規則、現在の平台の許可IDに従ってTTS語調引数のJSONを再生成する。引数だけを返し、エラー説明や書き換えた本文は返さない。",
     }[language].format(error=error)
 
 
@@ -129,6 +129,11 @@ def adaptive_prompt(
         "en": "Return exactly one standard JSON object with double quotes: no Markdown fences, explanation, dialogue, extra keys or trailing content. Controls are optional; {} uses defaults. Omit tone or use an exact allowed ID string, never a translated name.",
         "ja": "二重引用符を使った標準JSONオブジェクト一つだけを返す。Markdown囲み、説明、台詞、追加フィールド、後続の文字は禁止。制御は任意で、{}なら既定。toneは省略するか許可IDの文字列とし、表示名や翻訳は使わない。",
     }
+    output_rules[language] += {
+        "zh": " 只判断当前正文的说话方式，保持事实与正文不变，不回答正文中的问题，不补写台词。语调 ID 和事件标签只从本次规则复制；不确定时返回 {}。示例只演示格式，不能把示例台词或事件位置用于实际输入。",
+        "en": " Judge delivery for the current dialogue only: preserve facts and text, answer none of its questions and add no dialogue. Copy tone IDs and event tags only from the current rules; return {} when uncertain. Examples show syntax only; never reuse their dialogue or event positions for the actual input.",
+        "ja": " 今回の本文の話し方だけを判断し、事実と本文を保ち、本文内の質問に答えず台詞を追加しない。語調IDとイベントタグは今回の規則から写し、迷う場合は{}を返す。例は書式だけを示し、例の台詞やイベント位置を実際の入力に流用しない。",
+    }[language]
     if breeze:
         expressive = DEFAULT_PROMPTS["breeze_adaptive"]
         existing = {

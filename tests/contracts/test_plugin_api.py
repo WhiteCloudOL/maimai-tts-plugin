@@ -311,14 +311,16 @@ async def test_silk_send_reports_integer_duration_and_full_audio(serve, service)
 
 
 @pytest.mark.asyncio
-async def test_logs_contain_request_metadata_and_hide_spoken_text(serve, service):
+async def test_logs_include_spoken_text_only_in_explicit_tts_request_record(serve, service):
     api, _, _ = await setup_api(serve, service)
     try:
         result = await api.call("simple", text="这是本次 API 的私有朗读正文。", style_hint="私有表达偏好", request_id="log-case")
         assert result["ok"]
         logs = json.dumps(service.log.logger.mock_calls, ensure_ascii=False, default=str)
         assert "log-case" in logs and "API 请求完成" in logs
-        assert "私有朗读正文" not in logs and "私有表达偏好" not in logs
+        assert "私有朗读正文" in logs and "私有表达偏好" not in logs
+        body_records = [call for call in service.log.logger.log.call_args_list if "私有朗读正文" in str(call)]
+        assert len(body_records) == 1 and body_records[0].args[2] == "TTS 平台请求"
         assert "test-only-not-a-real-key" not in logs
     finally:
         await api.close()

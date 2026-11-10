@@ -4,9 +4,9 @@
 
 # 麦麦多平台 TTS 语音插件
 
-[![Plugin 2.2.0](https://img.shields.io/badge/Plugin-2.2.0-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.2.0)
+[![Plugin 2.2.1](https://img.shields.io/badge/Plugin-2.2.1-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.2.1)
 [![MaiBot 1.3.6–1.4.99](https://img.shields.io/badge/MaiBot-1.3.6--1.4.99-007ec6?style=flat)](#-快速开始)
-[![Plugin SDK 2.13.0–2.21.0](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.21.0-8A2BE2?style=flat)](#-快速开始)
+[![Plugin SDK 2.13.0–2.22.1](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.22.1-8A2BE2?style=flat)](#-快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
 
 **为麦麦赋予说话的能力！**<br>
@@ -106,7 +106,7 @@
 2. **固定语调**：固定选择开心、温柔、严肃等语气，所有合成自动应用。
 3. **动态语调**：勾选允许列表后，提供两种驱动方式：
    - **主模型标签驱动**：麦麦回复时在开头输出如 `[mmtts:happy]今天很高兴见到你`，插件校验后自动提取为合成参数并清除标签文本。
-   - **概率语音 LLM 语调自适应**：在「通用设置」中开启后，无需主回复模型输出标签，当抽中概率语音时，由指定任务（如 `utils`、`replyer`、`planner`、`vlm`）绑定的模型与服务商判断语气。仅对动态语调路由生效；单次超时默认 60 秒，失败后默认重试 3 次，均可调整，推荐使用低延迟模型。
+   - **概率语音 LLM 语调自适应**：在「通用设置」中开启后，无需主回复模型输出标签，当抽中概率语音时，由指定任务（如 `utils`、`replyer`、`planner`、`vlm`）绑定的模型与服务商判断语气。仅对动态语调路由生效；单次超时默认 60 秒，调用失败与参数校验失败共用重试次数，默认 2 次，可选 0–5 次，推荐使用低延迟模型。
 
 开启 LLM 语调自适应时，需要所有路由模型与音色均支持动态语调，否则将禁止开启。
 

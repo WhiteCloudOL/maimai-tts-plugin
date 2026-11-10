@@ -5,11 +5,12 @@ from maibot_sdk import HookHandler, Tool
 from maibot_sdk.types import HookMode
 from typing import Any, Dict, List, Optional
 
-from ..domain.breeze_control import PAUSE_EVENT_INDEX, control_prompt, event_tags
+from ..domain.breeze_control import PAUSE_EVENT_INDEX, event_tags
 from ..domain.adaptive_tone import direction_limit
-from ..domain.intonation import tone_capability, tone_choices, tone_prompt
+from ..domain.intonation import tone_capability, tone_choices
 from ..domain.models import Profile, TTSError
 from ..domain.prompts import DEFAULT_PROMPTS, has_variable, prompt_template, render_prompt
+from ..services.speech_input import speech_tone_prompt, speech_tool_parameters, speech_tool_prompt
 
 
 class IntonationMixin:
@@ -86,32 +87,7 @@ class IntonationMixin:
             model=profile.model,
             tone_count=len(profile.tone.allowed or cap["tones"]),
         )
-        if profile.kind == "breeze":
-            return control_prompt(
-                self.features.tone_prompt_language, automatic=automatic,
-                tags=event_tags(
-                    profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted"
-                ),
-                adaptive=adaptive,
-                template=prompt_template(
-                    self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
-                ),
-            ) + ("" if adaptive else "\n[mmtts:ID]: " + tone_choices(
-                profile.tone.allowed or cap["tones"], profile.tone.labels, profile.tone.directions
-            ))
-        return tone_prompt(
-            profile.tone.allowed or cap["tones"],
-            self.features.tone_prompt_language,
-            automatic=automatic,
-            default=profile.tone.emotion,
-            direction_limit=direction_limit(profile),
-            weighted=profile.kind == "cosyvoice",
-            labels=profile.tone.labels,
-            directions=profile.tone.directions,
-            template=prompt_template(
-                self.features.prompt_overrides, profile.kind, "dynamic", self.features.tone_prompt_language
-            ),
-        )
+        return speech_tone_prompt(profile, self.features, automatic=automatic, adaptive=adaptive)
 
     @HookHandler(
         "maisaka.planner.before_request",
@@ -153,6 +129,17 @@ class IntonationMixin:
         for item in definitions:
             function = item.get("function")
             if isinstance(function, dict) and function.get("name") == "mmtts_speak":
+                if profile is not None:
+                    function["description"] = speech_tool_prompt(profile, self.features, query_available=query_available)
+                    parameters = function.get("parameters")
+                    if isinstance(parameters, dict) and isinstance(parameters.get("properties"), dict):
+                        allowed = speech_tool_parameters(profile, self.features)
+                        parameters["properties"] = {
+                            key: dict(value, **allowed[key]) for key, value in parameters["properties"].items() if key in allowed
+                        }
+                        if "required" in parameters:
+                            parameters["required"] = [key for key in parameters["required"] if key in allowed]
+                    continue
                 description = render_prompt(tool_prompt, {"dynamic_tone": prompt})
                 # 旧的自定义说明未引用变量时，仍提供当前路由的完整规则；显式引用时只展开一次。
                 if prompt and not has_variable(tool_prompt, "dynamic_tone"):

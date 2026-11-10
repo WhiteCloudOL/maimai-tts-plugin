@@ -34,7 +34,7 @@ class ConfigStore:
             # 读取或校验失败必须暴露，不能用默认配置覆盖原文件。
             try:
                 contents = await asyncio.to_thread(self.path.read_text, encoding="utf-8")
-                self._config = StudioConfig.model_validate_json(contents)
+                self._config = StudioConfig.model_validate_json(contents, context={"load_saved_config": True})
             except (OSError, UnicodeError, ValidationError) as exc:
                 raise TTSError(f"工作台配置读取失败：{safe_validation_error(exc)}") from None
 
@@ -147,8 +147,12 @@ class ConfigStore:
         self._config = config
 
     def redact(self, message: str, private_values: Iterable[str] = ()) -> str:
+        return self.redact_text(message, private_values, include_private=True)[:1500]
+
+    def redact_text(self, message: str, private_values: Iterable[str] = (), *, include_private: bool = False) -> str:
+        """隐藏凭据并保留完整正文，供请求日志读取实际朗读内容。"""
         values = [profile.api_key for profile in self._config.profiles]
-        return redact_secrets(message, [*values, *private_values])[:1500]
+        return redact_secrets(message, [*values, *private_values], include_private=include_private)
 
     def _write(self, config: StudioConfig) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

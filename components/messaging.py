@@ -1,5 +1,6 @@
 """聊天命令与显式 LLM 语音工具。"""
 
+from dataclasses import dataclass
 from maibot_sdk import Command, Tool
 from maibot_sdk.types import ToolParameterInfo, ToolParamType
 from time import monotonic
@@ -15,6 +16,15 @@ from ..services.intonation import clean_display_text
 from ..infrastructure.voice_codec import voice_segment
 from ..infrastructure.diagnostics import trace_scope
 from ..services.routing import RoutingService
+from ..services.format_correction import correct_speech_arguments
+
+
+@dataclass
+class SpeechSendState:
+    """同一次工具调用的已确认投递回执，跨异常与超时保留发送状态。"""
+
+    text_sent: bool = False
+    voice_sent: bool = False
 
 
 # Host 将提及渲染为 @昵称；保留开头边界，只允许提及和空白出现在命令前。
@@ -55,6 +65,8 @@ class MessagingMixin:
         except TTSError as exc:
             success, message = False, self._safe_error_message(exc)
             self.service.log.warning("模型操作失败", stream_id=stream_id, error=message)
+        if not success:
+            return False, message, True
         if success:
             primary = self.store.config.primary
             self.service.log.info(
@@ -113,15 +125,8 @@ class MessagingMixin:
         return True, "语音已发送", True
 
     async def _tts_command_failure(self, stream_id: str, message: str) -> Tuple[bool, str, bool]:
-        """命令三元组只供 Host 记录；聊天提示通过发送能力显式送达。"""
-        if stream_id:
-            try:
-                sent = await self.ctx.send.text(message, stream_id)
-            except Exception as exc:
-                self.service.log.unexpected("语音命令提示发送异常", exc, stream_id=stream_id)
-            else:
-                if not sent:
-                    self.service.log.error("语音命令提示发送失败", stream_id=stream_id)
+        """命令诊断供 Host 记录，发送链仅投递业务正文与音频。"""
+        self.service.log.warning("语音命令结束", stream_id=stream_id, error=message)
         return False, message, True
 
     @Tool(
@@ -161,10 +166,8 @@ class MessagingMixin:
         """供 LLM 调用文本转语音能力。"""
 
         del kwargs
-        if not isinstance(text, str):
-            self.service.log.warning("语音工具文本类型无效", stream_id=stream_id)
-            return {"success": False, "error": "text 参数应为朗读文本字符串"}
-        self.service.log.info("收到语音工具调用", stream_id=stream_id, text_length=len(text))
+        self.service.log.info("收到语音工具调用", stream_id=stream_id,
+                              text_length=len(text) if isinstance(text, str) else 0)
         if not self.config.plugin.enabled:
             self.service.log.debug("跳过语音工具", reason="plugin_disabled")
             return {"success": False, "error": "麦麦TTS语音 插件当前未启用"}
@@ -178,18 +181,76 @@ class MessagingMixin:
 
         selected_voice = voice if self.features.allow_voice_override else None
         selected_speed = speed if self.features.allow_speed_override else None
+        send_state = SpeechSendState()
         try:
-            audio = await self._synthesize_and_send(
-                text=text,
-                stream_id=normalized_stream_id,
-                voice=selected_voice,
-                speed=selected_speed,
-                include_text=self.features.tool_keep_text,
+            return await asyncio.wait_for(
+                self._execute_tts_tool(text, normalized_stream_id, selected_voice, selected_speed, send_state), timeout=540,
             )
+        except asyncio.TimeoutError:
+            error = "语音工具处理超过 540 秒总预算"
+            self.service.log.warning("语音工具超时", stream_id=normalized_stream_id, error=error)
+            return await self._tool_text_result(TTSError(error), text, normalized_stream_id, send_state)
         except TTSError as exc:
-            error_message = self._safe_error_message(exc)
-            self.service.log.warning("语音工具失败", stream_id=normalized_stream_id, error=error_message)
-            return {"success": False, "error": error_message}
+            return await self._tool_text_result(exc, text, normalized_stream_id, send_state)
+        except Exception as exc:
+            self.service.log.unexpected("语音工具执行异常", exc, stream_id=normalized_stream_id)
+            return await self._tool_text_result(
+                TTSError(f"语音工具执行异常（{type(exc).__name__}）"), text, normalized_stream_id, send_state,
+            )
+
+    async def _tool_text_result(
+        self, error: TTSError, text: str, stream_id: str, send_state: SpeechSendState,
+    ) -> Dict[str, Any]:
+        """向 LLM 返回诊断，向聊天保留一次原始可见正文。"""
+        message = self._safe_error_message(error)
+        self.service.log.warning("语音工具失败", stream_id=stream_id, error=message)
+        config = self.store.config
+        primary = config.primary
+        breeze = primary is not None and any(
+            profile.id == primary.provider_id and profile.kind == "breeze" for profile in config.profiles
+        )
+        display_text = clean_display_text(text, breeze=breeze) if isinstance(text, str) else ""
+        if display_text and not (send_state.text_sent or send_state.voice_sent):
+            try:
+                await self._send_tts_message([{"type": "text", "data": display_text}], stream_id, display_text)
+                send_state.text_sent = True
+            except TTSError as exc:
+                self.service.log.warning("语音工具原文投递失败", stream_id=stream_id, error=self._safe_error_message(exc))
+        sent = send_state.text_sent or send_state.voice_sent
+        return {"success": False, "error": message, "sent": sent, "stop_after_execution": sent}
+
+    async def _execute_tts_tool(
+        self, text: str, stream_id: str, voice: Optional[str], speed: Optional[float], send_state: SpeechSendState,
+    ) -> Dict[str, Any]:
+        """先纠正可修正的输入格式，再执行一次合成与投递。"""
+        config = self.store.config
+        correction_error = ""
+        if config.primary is not None:
+            target = config.primary
+            profile = self.store.profile(target.provider_id)
+            if target.model_id:
+                profile = profile.for_model(target.model_id)
+            profile = profile.with_synthesis_overrides(voice=target.voice).with_selected_voice()
+            arguments: Dict[str, Any] = {"text": text}
+            if voice is not None:
+                arguments["voice"] = voice
+            if speed is not None:
+                arguments["speed"] = speed
+            result = await correct_speech_arguments(
+                self.ctx, self.features, profile, arguments, self.service.log,
+                automatic=False, max_text_length=self.service.settings.max_text_length,
+            )
+            if result.arguments is not None and self.store.config.revision == config.revision:
+                text = result.arguments["text"]
+                voice, speed = result.arguments.get("voice"), result.arguments.get("speed")
+            else:
+                correction_error = result.error or "语调纠正期间配置已变化，保留原文"
+        if correction_error:
+            raise TTSError(correction_error)
+        audio = await self._synthesize_and_send(
+            text=text, stream_id=stream_id, voice=voice, speed=speed,
+            include_text=self.features.tool_keep_text, send_state=send_state,
+        )
         return {
             "success": True,
             "message": "语音已发送",
@@ -207,6 +268,7 @@ class MessagingMixin:
         voice: Optional[str] = None,
         speed: Optional[float] = None,
         include_text: bool = False,
+        send_state: Optional[SpeechSendState] = None,
     ) -> Audio:
         with trace_scope():
             synthesized = await self._synthesize_audio(text=text, voice=voice, speed=speed)
@@ -225,7 +287,11 @@ class MessagingMixin:
                 await self._send_tts_message(
                     [{"type": "text", "data": display_text}], stream_id, display_text,
                 )
+                if send_state is not None:
+                    send_state.text_sent = True
             await self._send_tts_message([segment], stream_id, display_text)
+            if send_state is not None:
+                send_state.voice_sent = True
             elapsed_ms = round((monotonic() - started) * 1000)
             self.service.log.info(
                 "发送语音成功", stream_id=stream_id, audio_bytes=len(synthesized.data), elapsed_ms=elapsed_ms

@@ -40,7 +40,7 @@ AudioFormat = Literal["mp3", "wav", "opus", "aac", "flac", "pcm", "pcmu_raw", "p
 
 
 class TTSError(RuntimeError):
-    """可安全向用户展示的服务错误。"""
+    """供日志、WebUI 和调用方读取的服务诊断。"""
 
 
 class TTSOperationError(TTSError):
@@ -720,12 +720,25 @@ class Features(Model):
     probability_tone_enabled: bool = False
     probability_tone_task: str = Field(default="utils", min_length=1, max_length=200)
     probability_tone_timeout: float = Field(default=60, ge=1, le=300)
-    probability_tone_retries: int = Field(default=3, ge=0, le=10)
+    probability_tone_retries: int = Field(default=2, ge=0, le=5)
     tool_keep_text: bool = False
     allow_voice_override: bool = False
     allow_speed_override: bool = True
     tone_prompt_language: Literal["zh", "en", "ja"] = "zh"
     prompt_overrides: Dict[ProviderKind, Dict[PromptKind, Dict[PromptLanguage, str]]] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_saved_retry_settings(cls, value: Any, info: ValidationInfo) -> Any:
+        """读取已保存的共用重试设置；编辑值使用当前范围校验。"""
+        if not isinstance(value, dict) or not info.context or not info.context.get("load_saved_config"):
+            return value
+        data = dict(value)
+        data.pop("format_correction_retries", None)
+        retries = data.get("probability_tone_retries")
+        if isinstance(retries, int) and 5 < retries <= 10:
+            data["probability_tone_retries"] = 5
+        return data
 
     @model_validator(mode="after")
     def validate_lengths(self) -> "Features":
