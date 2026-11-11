@@ -4,7 +4,7 @@
 
 # 麦麦多平台 TTS 语音插件
 
-[![Plugin 2.2.1](https://img.shields.io/badge/Plugin-2.2.1-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.2.1)
+[![Plugin 2.2.2](https://img.shields.io/badge/Plugin-2.2.2-007ec6?style=flat)](https://github.com/WhiteCloudOL/maimai-tts-plugin/releases/tag/v2.2.2)
 [![MaiBot 1.3.6–1.4.99](https://img.shields.io/badge/MaiBot-1.3.6--1.4.99-007ec6?style=flat)](#-快速开始)
 [![Plugin SDK 2.13.0–2.22.1](https://img.shields.io/badge/Plugin%20SDK-2.13.0--2.22.1-8A2BE2?style=flat)](#-快速开始)
 [![License AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-green?style=flat)](LICENSE)
