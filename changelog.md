@@ -9,6 +9,7 @@
 - Breeze 官方音色：将“自定义音色”明确为“导入音色 ID”，单个与批量导入保存前按当前账号实时核验，合成失败时展示实际请求的 `voice_id`。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
 - 模型试听：显示并支持选择 Breeze 模型默认音色，明确模型试听与聊天路由覆盖音色的关系。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
 - 工作台：补齐音色导入核验的操作声明，修复保存时出现 `operation` 参数错误及删除音色按钮显示模板源码的问题。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
+- Breeze 音色管理：为已收藏的导入音色补齐云端删除入口，保留删除确认、账号权限校验与路由占用检查。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
 - 服务商管理：删除确认后立即保存删除结果并更新路由引用，保留其他尚未提交的编辑内容。
 
 ## 2.2.1
