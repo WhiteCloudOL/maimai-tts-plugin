@@ -120,6 +120,23 @@ class ConfigStore:
             await self._commit(updated)
             return self.snapshot()
 
+    async def delete_profile(self, profile_id: str, revision: int) -> Dict[str, Any]:
+        """原子删除服务商及其路由引用，其他配置保留已保存值。"""
+        async with self._lock:
+            if revision != self._config.revision:
+                raise TTSError("配置已在其他页面更新，请刷新后重试")
+            if not any(profile.id == profile_id for profile in self._config.profiles):
+                raise TTSError("服务商不存在，请刷新页面")
+            data = self._config.model_dump()
+            data["profiles"] = [profile for profile in data["profiles"] if profile["id"] != profile_id]
+            data["fallbacks"] = [target for target in data["fallbacks"] if target["provider_id"] != profile_id]
+            if data["primary"] and data["primary"]["provider_id"] == profile_id:
+                data["primary"] = data["fallbacks"].pop(0) if data["fallbacks"] else None
+            data["revision"] = revision + 1
+            updated = StudioConfig.model_validate(data)
+            await self._commit(updated)
+            return self.snapshot()
+
     async def save_routing(self, payload: Dict[str, Any], revision: int) -> Dict[str, Any]:
         """仅提交整体路由，模型资源与回复行为沿用已保存配置。"""
         async with self._lock:

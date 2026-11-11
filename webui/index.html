@@ -5629,20 +5629,41 @@
               .join("")}</div>`,
           ),
         delete: async () => {
+          if (state.saving || state.busy) return;
           const p = current();
-          if (
-            await ask(
-              "删除这个服务商？",
-              `删除“${p.name}”及其本地音色收藏，并从首选与备选链中移除。平台上的音色不会被删除。`,
-            )
-          ) {
+          const confirmed = await ask(
+            "删除这个服务商？",
+            `删除“${p.name}”及其本地音色收藏，移除首选与备选路由中的引用，并立即保存。云端音色保留在平台账号中。`,
+          );
+          if (!confirmed || state.saving || state.busy) return;
+          state.saving = true;
+          updateSave();
+          try {
+            if (state.savedConfig.profiles.some((item) => item.id === p.id)) {
+              const saved = await maibot.action("delete_profile", {
+                profile_id: p.id, revision: state.config.revision,
+              });
+              state.savedConfig = structuredClone(saved);
+              state.config.revision = saved.revision;
+            }
             removeFromRoute(p.id);
             state.config.profiles = state.config.profiles.filter(
               (v) => v.id !== p.id,
             );
             state.selected = state.config.profiles[0]?.id || "";
-            dirty();
+            if (state.previewProfile === p.id) {
+              state.previewProfile = "";
+              state.previewModel = "";
+            }
+            invalidateProfileLists(p.id);
+            delete state.voiceModels[p.id];
+            state.dirty = JSON.stringify(state.config) !== JSON.stringify(state.savedConfig);
+            notify("服务商已删除并保存");
+          } finally {
+            state.saving = false;
             render();
+            syncSelects();
+            updateSave();
           }
         },
 

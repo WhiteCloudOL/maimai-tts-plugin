@@ -175,6 +175,13 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self.service.log.info("平台设置已保存", provider_id=data.get("id"), revision=result["revision"])
         return result
 
+    @API("studio_delete_profile", description="立即保存服务商删除结果并移除路由引用")
+    async def studio_delete_profile(self, profile_id: str, revision: int) -> Dict[str, Any]:
+        result = await self.store.delete_profile(profile_id, revision)
+        self._invalidate_probability_decisions()
+        self.service.log.info("服务商已删除", provider_id=profile_id, revision=result["revision"])
+        return result
+
     @API("studio_save_routing", description="保存整体语音路由并立即生效")
     async def studio_save_routing(self, payload: str, revision: int) -> Dict[str, Any]:
         try:

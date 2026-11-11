@@ -1,13 +1,14 @@
 """工作台操作声明与后台分发保持一致，覆盖宿主调用前的参数边界。"""
 
 from ast import Compare, Constant, Eq, In, List, Name, Set, Tuple, parse, walk
-from inspect import getsource
+from inspect import Parameter, getsource, signature
 from pathlib import Path
 from textwrap import dedent
 
 import json
 
 from maimai_tts_contract.services.studio import Studio
+from maimai_tts_contract.plugin import TTSPlugin
 
 
 def test_declared_launch_operations_match_backend_dispatch():
@@ -25,3 +26,17 @@ def test_declared_launch_operations_match_backend_dispatch():
                 operations.update(item.value for item in value.elts if isinstance(item, Constant))
     assert launch["api"] == "studio_launch"
     assert set(launch["parameters"]["operation"]["choices"]) == operations
+
+
+def test_webui_bindings_match_registered_sdk_api_parameters():
+    declaration = json.loads((Path(__file__).resolve().parents[2] / "webui.json").read_text(encoding="utf-8"))
+    registered = {component["name"] for component in TTSPlugin().get_components()}
+    for page in declaration["pages"]:
+        for binding in [*page["actions"].values(), *page["queries"].values()]:
+            assert binding["api"] in registered
+            parameters = signature(getattr(TTSPlugin, binding["api"])).parameters
+            declared = binding.get("parameters", {})
+            assert declared.keys() <= parameters.keys()
+            for name, parameter in parameters.items():
+                if name != "self" and parameter.default is Parameter.empty:
+                    assert declared[name]["required"] is True

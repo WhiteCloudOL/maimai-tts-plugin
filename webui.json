@@ -161,6 +161,21 @@
             }
           }
         },
+        "delete_profile": {
+          "api": "studio_delete_profile",
+          "parameters": {
+            "profile_id": {
+              "type": "string",
+              "required": true,
+              "max_length": 64
+            },
+            "revision": {
+              "type": "integer",
+              "required": true,
+              "minimum": 0
+            }
+          }
+        },
         "save_routing": {
           "api": "studio_save_routing",
           "parameters": {
