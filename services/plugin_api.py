@@ -426,7 +426,7 @@ class PluginAPIService:
         self.require_enabled()
         display = audio.display_text or ""
         self.tts.log.info("API 发送开始", stream_id=stream_id, audio_bytes=len(audio.data), keep_text=keep_text)
-        segment = await asyncio.to_thread(voice_segment, audio)
+        segment = await asyncio.to_thread(voice_segment, audio, display)
         try:
             self.require_enabled()
             if keep_text and display:

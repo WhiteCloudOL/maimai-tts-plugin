@@ -73,9 +73,9 @@ def encode_silk(audio: Audio, limit: int, *, integer_seconds: bool = False) -> A
     return replace(audio, data=data, content_type="audio/silk", response_format="silk")
 
 
-def voice_segment(audio: Audio) -> Dict[str, Any]:
-    """SDK hybrid 与发送 Hook 共用同一个二进制语音段契约。"""
+def voice_segment(audio: Audio, text: str) -> Dict[str, Any]:
+    """SDK hybrid 与发送 Hook 共用语音段：data 保存正文，二进制字段承载音频。"""
     return {
-        "type": "voice", "data": "", "hash": hashlib.sha256(audio.data).hexdigest(),
+        "type": "voice", "data": text, "hash": hashlib.sha256(audio.data).hexdigest(),
         "binary_data_base64": base64.b64encode(audio.data).decode("ascii"),
     }

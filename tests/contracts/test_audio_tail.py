@@ -76,7 +76,8 @@ def test_actual_codec_preserves_audible_tail_on_exact_packet_boundaries(millisec
     assert actual == reference[:len(actual)], "排空尾部不能改写此前的声音"
     assert len(raw) <= len(actual) < len(raw) + RATE * 2 * 60 // 1000
     assert converted.display_text == original.display_text
-    segment = voice_segment(converted)
+    segment = voice_segment(converted, "完整正文。")
+    assert segment["data"] == "完整正文。"
     assert base64.b64decode(segment["binary_data_base64"]) == converted.data
 
 

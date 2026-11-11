@@ -17,6 +17,7 @@ from maimai_tts_contract.components.messaging import MessagingMixin
 from maimai_tts_contract.domain.adaptive_tone import adaptive_prompt, parse_adaptive_tone
 from maimai_tts_contract.domain.models import Features, Profile, RouteTarget, StudioConfig, TTSError
 from maimai_tts_contract.domain.prompts import PLATFORM_DEFAULTS, validate_prompt
+from maimai_tts_contract.plugin import TTSPlugin
 
 
 CASES = {
@@ -81,6 +82,12 @@ class PromptBot(MessagingMixin, IntonationMixin):
         self.ctx = SimpleNamespace(send=SimpleNamespace(hybrid=AsyncMock(return_value={"sent": True})))
 
 
+def test_sdk_registration_exports_speech_tool_as_visible():
+    components = json.loads(json.dumps(TTSPlugin().get_components()))
+    tool = next(component for component in components if component["name"] == "mmtts_speak")
+    assert tool["metadata"]["visibility"] == "visible"
+
+
 @pytest.mark.parametrize("kind", CASES)
 @pytest.mark.asyncio
 async def test_tool_labels_reach_platform_request_and_not_retained_text(serve, service, kind):
@@ -97,6 +104,7 @@ async def test_tool_labels_reach_platform_request_and_not_retained_text(serve, s
     assert calls and "mmtts:" not in json.dumps(calls, ensure_ascii=False)
     sent = bot.ctx.send.hybrid.await_args_list
     assert sent[0].args[0] == [{"type": "text", "data": TEXT}]
+    assert sent[1].args[0][0]["data"] == TEXT
     assert sent[1].args[0][0]["binary_data_base64"]
     if kind in {"minimax", "bailian_minimax"}:
         payload = calls[0]["input"] if kind == "bailian_minimax" else calls[0]

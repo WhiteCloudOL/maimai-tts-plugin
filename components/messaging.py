@@ -131,6 +131,7 @@ class MessagingMixin:
 
     @Tool(
         "mmtts_speak",
+        visibility="visible",
         timeout_ms=600000,
         brief_description="把文本合成为语音并发送到当前聊天流",
         detailed_description=DEFAULT_PROMPTS["tool"]["zh"],
@@ -273,7 +274,7 @@ class MessagingMixin:
         with trace_scope():
             synthesized = await self._synthesize_audio(text=text, voice=voice, speed=speed)
             display_text = synthesized.display_text if synthesized.display_text is not None else clean_display_text(text)
-            segment = await asyncio.to_thread(voice_segment, synthesized)
+            segment = await asyncio.to_thread(voice_segment, synthesized, display_text)
             started = monotonic()
             self.service.log.info(
                 "发送语音开始",

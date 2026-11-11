@@ -171,6 +171,8 @@ async def test_both_entries_support_both_output_modes(serve, service, entry, out
         assert "audio" in result["data"]
         assert ("send" in result["data"]) == (output == "send")
         assert bot.ctx.send.hybrid.await_count == (2 if output == "send" else 0)
+        if output == "send":
+            assert bot.ctx.send.hybrid.await_args.args[0][0]["data"] == TEXT
     finally:
         await api.close()
 

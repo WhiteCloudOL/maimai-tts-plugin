@@ -132,6 +132,28 @@ async def test_command_errors_are_logged_and_returned_without_chat_delivery(serv
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["tool", "command"])
+async def test_voice_only_sends_store_clean_text_and_reuse_audio_cache(serve, service, entry):
+    bot, calls, _ = await setup_bot(serve, service, tool_keep_text=False)
+    for _ in range(2):
+        if entry == "tool":
+            result = await bot.handle_tts_tool("[mmtts:happy]" + TEXT, stream_id="test-stream")
+            assert result["success"]
+        else:
+            result = await bot.handle_tts_command(
+                stream_id="test-stream", matched_groups={"text": "[mmtts:happy]" + TEXT},
+            )
+            assert result[0]
+    assert len(calls) == 1 and bot.ctx.send.hybrid.await_count == 2
+    for sent in bot.ctx.send.hybrid.await_args_list:
+        segments = sent.args[0]
+        assert len(segments) == 1 and segments[0]["type"] == "voice"
+        assert segments[0]["data"] == TEXT
+        assert sent.kwargs["processed_plain_text"] == TEXT
+        assert sent.kwargs["sync_to_maisaka_history"] is True
+
+
+@pytest.mark.asyncio
 async def test_audio_failure_after_text_delivery_keeps_single_text_receipt(serve, service):
     bot, calls, _ = await setup_bot(serve, service, tool_keep_text=True)
     bot.ctx.send.hybrid.side_effect = [{"sent": True}, {"sent": False}]

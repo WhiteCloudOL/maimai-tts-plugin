@@ -1,5 +1,12 @@
 # 更新日志
 
+## 未发布
+
+### 细节
+
+- 语音工具：`mmtts_speak` 常驻可调用列表，修复长对话裁切工具搜索记录后退出直接调用列表的问题。([#5](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/5))
+- 语音历史：命令、工具、概率语音和插件 API 统一将朗读正文写入语音消息内容，保留控制标签过滤后的文字。([#5](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/5))
+
 ## 2.2.1
 
 ### 主要功能

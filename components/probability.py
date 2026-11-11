@@ -415,9 +415,9 @@ class ProbabilityMixin:
                 raise TTSError("概率语音只处理纯文本回复")
             options: Dict[str, Any] = {"tone_adapter": adapter} if adapter is not None else {}
             audio = await self._synthesize_audio(text=original, **options)
-            segment = await asyncio.to_thread(voice_segment, audio)
             # voice 的 data 是已知朗读正文，二进制由独立字段传递；Host 据此记录语音内容。
-            segment["data"] = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
+            display_text = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
+            segment = await asyncio.to_thread(voice_segment, audio, display_text)
             if keep_text:
                 message["segments"].append(segment)
             else:
