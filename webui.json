@@ -97,6 +97,7 @@
                 "clone",
                 "clone_status",
                 "voice_preview",
+                "voice_info",
                 "design",
                 "update_voice",
                 "delete_voice"
