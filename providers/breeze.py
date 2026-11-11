@@ -33,6 +33,9 @@ class BreezeProvider(Provider):
     async def voices(self, profile: Profile) -> List[Dict[str, str]]:
         return await self.implementation(profile).voices(profile)
 
+    async def voice_info(self, profile: Profile, voice_id: str) -> Dict[str, str]:
+        return await self.implementation(profile).voice_info(profile, voice_id)
+
     async def clone(self, profile: Profile, name: str, url: str, text: str) -> Union[str, CloneResult]:
         return await self.implementation(profile).clone(profile, name, url, text)
 

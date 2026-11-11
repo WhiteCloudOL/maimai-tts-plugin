@@ -125,3 +125,58 @@ async def test_empty_legacy_route_still_protects_the_inherited_cloud_voice_from_
             studio.launch("delete_voice", profile_id=saved.profiles[0].id, model_id=saved.profiles[0].model, voice_id="voice-default")
     finally:
         await studio.close()
+
+
+@pytest.mark.parametrize("tone_mode", ["off", "dynamic"])
+@pytest.mark.parametrize("route_voice", [None, "voice-override"])
+async def test_breeze_model_preview_and_route_preserve_their_selected_voice(serve, service, tone_mode, route_voice):
+    calls = []
+
+    async def handler(request):
+        body = await request.json()
+        calls.append((request.path.rsplit("/", 1)[-1], body.get("instructions", "")))
+        return web.Response(body=AUDIO, content_type="audio/mpeg")
+
+    saved = config(await serve(handler), "breeze", route_voice)
+    saved.profiles[0].tone.mode = tone_mode
+    service.store._config = saved
+    before = saved.model_dump()
+    studio = Studio(service.store, service)
+    try:
+        selected = saved.profiles[0]
+        job = studio.launch("preview", selected.id, text="模型试听。", model_id=selected.model,
+                            draft=selected.model_dump_json(), refresh=True)
+        await studio.jobs[job["job_id"]].task
+        assert studio.job(job["job_id"])["state"] == "done"
+        await service.synthesize("路由合成。", config=saved)
+        assert [voice for voice, _ in calls] == ["voice-default", route_voice or "voice-default"]
+        assert all(bool(instructions) == (tone_mode == "dynamic") for _, instructions in calls)
+        assert saved.model_dump() == before
+    finally:
+        await studio.close()
+
+
+async def test_missing_model_preview_voice_reports_its_id_without_poisoning_route_cache(serve, service):
+    calls = []
+
+    async def handler(request):
+        voice = request.path.rsplit("/", 1)[-1]
+        calls.append(voice)
+        if voice == "voice-default":
+            return web.json_response({"code": "RESOURCE_NOT_FOUND", "detail": "Voice not found."}, status=404)
+        return web.Response(body=AUDIO, content_type="audio/mpeg")
+
+    saved = config(await serve(handler), "breeze", "voice-override")
+    service.store._config = saved
+    studio = Studio(service.store, service)
+    try:
+        selected = saved.profiles[0]
+        job = studio.launch("preview", selected.id, text="相同正文。", model_id=selected.model)
+        await studio.jobs[job["job_id"]].task
+        result = studio.job(job["job_id"])
+        assert result["state"] == "error" and "voice_id='voice-default'" in result["error"]
+        for _ in range(2):
+            assert (await service.synthesize("相同正文。", config=saved)).data == AUDIO
+        assert calls == ["voice-default", "voice-override"]
+    finally:
+        await studio.close()

@@ -6,6 +6,8 @@
 
 - 语音工具：`mmtts_speak` 常驻可调用列表，修复长对话裁切工具搜索记录后退出直接调用列表的问题。([#5](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/5))
 - 语音历史：命令、工具、概率语音和插件 API 统一将朗读正文写入语音消息内容，保留控制标签过滤后的文字。([#5](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/5))
+- Breeze 官方音色：将“自定义音色”明确为“导入音色 ID”，单个与批量导入保存前按当前账号实时核验，合成失败时展示实际请求的 `voice_id`。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
+- 模型试听：显示并支持选择 Breeze 模型默认音色，明确模型试听与聊天路由覆盖音色的关系。([#6](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/6))
 
 ## 2.2.1
 

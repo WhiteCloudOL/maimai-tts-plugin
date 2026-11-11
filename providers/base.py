@@ -182,6 +182,10 @@ class Provider:
     async def voices(self, profile: Profile) -> List[Dict[str, str]]:
         raise TTSError("该平台不提供账号音色列表；请选择预设或手动添加音色 ID")
 
+    async def voice_info(self, profile: Profile, voice_id: str) -> Dict[str, str]:
+        """查询指定音色的身份及当前账号访问权限。"""
+        raise TTSError("此平台通过音色目录提供音色信息")
+
     async def clone(self, profile: Profile, name: str, url: str, text: str) -> Union[str, CloneResult]:
         raise TTSError("该平台使用合成时参考音频或控制台音色 ID，无独立创建音色接口")
 

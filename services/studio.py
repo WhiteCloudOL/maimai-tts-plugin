@@ -207,6 +207,15 @@ class Studio:
         if model_id:
             profile = profile.for_model(model_id)
         provider = self.service.provider(profile)
+        if operation == "voice_info":
+            if not voice_id or len(voice_id) > 500:
+                raise TTSError("请填写需要核验的音色 ID")
+            # 导入时查询当前账号的实时访问权限，音色列表缓存与历史合成结果保持独立。
+            return self.start(
+                lambda: self.service.execute(lambda: provider.voice_info(profile, voice_id)),
+                operation_name=operation, profile_id=profile_id, model_id=model_id,
+                private_values=(profile.api_key,),
+            )
         if operation == "voice_preview":
             if not voice_id or len(voice_id) > 500:
                 raise TTSError("请填写平台试听的音色 ID")

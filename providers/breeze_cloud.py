@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import asyncio
+import re
 
 from ..domain.models import Audio, Profile, TTSError
 from ..infrastructure.reference_audio import reference_mime
@@ -17,6 +18,11 @@ class BreezeCloudProvider(Provider):
     voices_path = "voices"
     clone_path = "voice-previews/clone"
 
+    @staticmethod
+    def normalize_voice_id(value: str) -> str:
+        """保留平台音色 ID，仅移除复制时夹带的首尾空白与不可见分隔符。"""
+        return re.sub(r"^[\s\ufeff\u200b]+|[\s\ufeff\u200b]+$", "", value)
+
     def operation_url(self, profile: Profile, path: str) -> str:
         if not profile.base_url:
             raise TTSError("Breeze 在线服务请填写 BaseURL，例如 https://api.breeze.blue/v1")
@@ -25,7 +31,8 @@ class BreezeCloudProvider(Provider):
     def url(self, profile: Profile, operation: str = "speech", *, websocket: bool = False, model: str = "") -> str:
         if operation != "speech" or not profile.base_url:
             return super().url(profile, operation, websocket=websocket, model=model)
-        path = "text-to-speech/" + quote(profile.voice, safe="")
+        voice_id = self.normalize_voice_id(profile.voice)
+        path = "text-to-speech/" + quote(voice_id, safe="")
         if profile.options.breeze_transport == "stream":
             path += "/stream"
         return self.operation_url(profile, path)
@@ -116,6 +123,25 @@ class BreezeCloudProvider(Provider):
             token = next_token or ""
         raise TTSError("Breeze 当前筛选超过 1000 个音色，请选择同步音色语言、填写搜索关键词或切换个人目录")
 
+    async def voice_info(self, profile: Profile, voice_id: str) -> Dict[str, str]:
+        voice_id = self.normalize_voice_id(voice_id)
+        if not voice_id or len(voice_id) > 500:
+            raise TTSError("请填写 1–500 字符的 Breeze 官方音色 ID（voice_id）")
+        try:
+            data = await self.http.json(
+                "GET", self.operation_url(profile, "voices/" + quote(voice_id, safe="")), self.headers(profile)
+            )
+        except TTSError as exc:
+            raise TTSError(f"Breeze 官方音色核验失败，voice_id={voice_id!r}：{exc}") from None
+        if data.get("voice_id") != voice_id or not isinstance(data.get("name"), str) or not data["name"]:
+            raise TTSError("Breeze 官方音色详情缺少匹配的 voice_id 或音色名称")
+        return {
+            "id": voice_id,
+            "name": data["name"][:80],
+            "model": "",
+            "origin": {"cloned": "clone", "designed": "design"}.get(data.get("origin"), "account"),
+        }
+
     async def audio(self, profile: Profile, path: str, fmt: str = "wav") -> Audio:
         async with self.http.session.get(
             self.operation_url(profile, path),
@@ -134,7 +160,8 @@ class BreezeCloudProvider(Provider):
 
     async def synthesize(self, profile: Profile, text: str) -> Audio:
         options = profile.options
-        if not profile.voice:
+        voice_id = self.normalize_voice_id(profile.voice)
+        if not voice_id:
             raise TTSError("当前 Breeze 合成未选中音色；请在此模型的“音色与克隆”保存音色 ID，并在“语音路由”选择该音色或沿用模型默认音色")
         if len(text) > options.breeze_max_characters:
             raise TTSError(f"Breeze 在线文本超过当前账号配置的 {options.breeze_max_characters} 字符上限")
@@ -164,7 +191,15 @@ class BreezeCloudProvider(Provider):
             proxy=self.http.proxy,
             allow_redirects=False,
         ) as response:
-            await self.http.check(response)
+            try:
+                await self.http.check(response)
+            except TTSError as exc:
+                if response.status == 404:
+                    raise TTSError(
+                        f"Breeze 官方合成失败，voice_id={voice_id!r}：{exc}；"
+                        "可在“音色目录”同步当前账号可用音色，或在“导入音色 ID”核验已有音色"
+                    ) from None
+                raise
             if response.status == 202:
                 job = await self.http.decode_json(await self.http.read(response, 65536), self.headers(profile))
             else:
