@@ -36,6 +36,8 @@ GitHub Actions 对 Windows、Linux 和两个 SDK 端点版本执行同一命令�
   配置快照、源格式发送与工作台试听分别按所选设置处理。
 - 工具和语调自适应经过本地 HTTP 端点核对全部平台的最终请求字段，保留文字清理控制标记；
   JSON 字段、格式示例、重复字段拒绝及重试前缀复用分别回归。
+- 硅基流动 CosyVoice2 的简短语调覆盖固定、普通动态、工具与 LLM 自适应；核对三种语言和自定义模板、
+  风格建议余量、原配置保留、参考录音互斥，以及指令变化后的合成缓存和同轮自适应决定隔离。
 - 概率回复整轮抽样一次，按宿主分段选择正文；覆盖全平台合成、引用开关、独立与同段表情、
   @ 的前后顺序、原生附件字段、合成失败保留整轮、并发缓存复用、发送回执去重和状态清理。
 - 语调纠正返回纯正文时，概率命中与未命中均向宿主传递有效正文；无哈希表情按宿主补算后的
@@ -51,5 +53,6 @@ GitHub Actions 对 Windows、Linux 和两个 SDK 端点版本执行同一命令�
 - [MiniMax HTTP / SSE](https://platform.minimax.io/docs/api-reference/speech-t2a-http)
 - [MiniMax WebSocket](https://platform.minimax.io/docs/api-reference/speech-t2a-websocket)
 - [百炼 MiniMax](https://help.aliyun.com/zh/model-studio/minimax-synchronous-speech-synthesis-api)
+- [硅基流动语音合成](https://docs.siliconflow.cn/docs/api/audio-speech-post)
 
 本地实验测试继续保持忽略；可在此目录新增不依赖密钥、账号和付费调用的协议回归。
