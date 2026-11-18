@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import re
 
 from .prompts import DEFAULT_PROMPTS, has_variable, render_prompt
+from .siliconflow import COSYVOICE2_MODEL, RECOMMENDED_INSTRUCTION_LENGTH, SHORT_TONE_DIRECTIONS
 from .bailian import instruction_length
 from .volcengine import cot_text
 
@@ -153,6 +154,8 @@ TONE_RULES: List[Dict[str, Any]] = [
         "model_pattern": r"FunAudioLLM/CosyVoice2-0\.5B",
         "protocol": "silicon_prompt",
         "tones": COMMON,
+        "directions": SHORT_TONE_DIRECTIONS,
+        "recommended_instruction_length": RECOMMENDED_INSTRUCTION_LENGTH,
         "note": "CosyVoice2 支持情绪、语速、角色与方言描述。",
     },
     {
@@ -261,8 +264,12 @@ def validate_tone_settings(
             cot_text("&", combined)
 
 
-def tone_choices(allowed: List[str], labels: Dict[str, str], directions: Dict[str, str]) -> str:
+def tone_choices(
+    allowed: List[str], labels: Dict[str, str], directions: Dict[str, str], *, kind: str = "", model: str = "",
+) -> str:
     """稳定 ID 与用户编辑的含义同时供模型选择，原生枚举由配置校验禁止覆盖。"""
+    if kind == "siliconflow" and model == COSYVOICE2_MODEL:
+        directions = {**SHORT_TONE_DIRECTIONS, **directions}
     return ", ".join(
         f"{key}({labels.get(key, TONE_LABELS[key])}" + (f": {directions[key]}" if key in directions else "") + ")"
         for key in allowed

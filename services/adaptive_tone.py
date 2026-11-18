@@ -19,6 +19,7 @@ from ..domain.intonation import tone_capability, tone_choices
 from ..domain.breeze_control import parse_breeze_text
 from ..domain.models import Features, Profile, TTSError, TTSOperationError
 from ..domain.prompts import prompt_template
+from ..domain.siliconflow import short_instruction_guidance
 from ..infrastructure.diagnostics import Diagnostics
 
 
@@ -51,15 +52,14 @@ class ProbabilityToneAdapter:
             if profile.kind == "breeze" and not parse_breeze_text(self.text).marked
             else {}
         )
+        prompt = self._prompt(profile, tones)
         key = json.dumps(
             [
                 tones,
                 profile.tone.labels,
                 profile.tone.directions,
                 profile.kind,
-                prompt_template(
-                    self.features.prompt_overrides, profile.kind, "adaptive", self.features.tone_prompt_language
-                ),
+                prompt,
                 direction_limit(profile),
                 profile.kind == "cosyvoice",
                 xml_instructions,
@@ -68,11 +68,38 @@ class ProbabilityToneAdapter:
         )
         if key in self.decisions:
             return self.decisions[key]
-        decision = await self._classify(profile, tones)
+        decision = await self._classify(profile, tones, prompt)
         self.decisions[key] = decision
         return decision
 
-    async def _classify(self, profile: Profile, tones: List[str]) -> Optional[ToneDecision]:
+    def _prompt(self, profile: Profile, tones: List[str]) -> str:
+        """按实际表达规则构造前缀，供同轮决定复用及 LLM 请求共同使用。"""
+        limit = direction_limit(profile)
+        # 所有原文共用同一路由的 system 前缀；已有标签的约束和重试原因追加在 user 消息后。
+        prompt = adaptive_prompt(
+            self.features.tone_prompt_language,
+            tones,
+            breeze=profile.kind == "breeze",
+            free_direction=limit > 0,
+            max_direction_length=limit,
+            weighted=profile.kind == "cosyvoice",
+            event_options=breeze_event_options(profile) if profile.kind == "breeze" else {},
+            tone_meanings=tone_choices(
+                tones, profile.tone.labels, profile.tone.directions, kind=profile.kind, model=profile.model,
+            ),
+            template=prompt_template(
+                self.features.prompt_overrides,
+                profile.kind,
+                "adaptive",
+                self.features.tone_prompt_language,
+            ),
+        )
+        guidance = short_instruction_guidance(
+            profile.kind, profile.model, self.features.tone_prompt_language, instructions=profile.instructions,
+        )
+        return prompt + "\n" + guidance if guidance else prompt
+
+    async def _classify(self, profile: Profile, tones: List[str], prompt: str) -> Optional[ToneDecision]:
         timeout = self.features.probability_tone_timeout
         limit = direction_limit(profile)
         # 已有局部表演标记优先保留；未标记正文才由自适应补充原文锚点事件。
@@ -83,23 +110,6 @@ class ProbabilityToneAdapter:
         )
         failures: List[Tuple[str, str]] = []
         attempts = 1 + self.features.probability_tone_retries
-        # 所有原文共用同一路由的 system 前缀；已有标签的约束和重试原因追加在 user 消息后。
-        prompt = adaptive_prompt(
-            self.features.tone_prompt_language,
-            tones,
-            breeze=profile.kind == "breeze",
-            free_direction=limit > 0,
-            max_direction_length=limit,
-            weighted=profile.kind == "cosyvoice",
-            event_options=breeze_event_options(profile) if profile.kind == "breeze" else {},
-            tone_meanings=tone_choices(tones, profile.tone.labels, profile.tone.directions),
-            template=prompt_template(
-                self.features.prompt_overrides,
-                profile.kind,
-                "adaptive",
-                self.features.tone_prompt_language,
-            ),
-        )
         for attempt in range(1, attempts + 1):
             messages = [{"role": "system", "content": prompt}, {"role": "user", "content": self.text}]
             if self.style_hint:

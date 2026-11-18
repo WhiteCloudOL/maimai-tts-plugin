@@ -109,6 +109,8 @@ async def test_tool_labels_reach_platform_request_and_not_retained_text(serve, s
     if kind in {"minimax", "bailian_minimax"}:
         payload = calls[0]["input"] if kind == "bailian_minimax" else calls[0]
         assert payload["voice_setting"]["emotion"] == "happy"
+    elif kind == "siliconflow":
+        assert calls[0]["input"] == "开心愉快。<|endofprompt|>" + TEXT
     elif kind != "gpt_sovits":
         assert "以开心愉快" in json.dumps(calls, ensure_ascii=False)
 

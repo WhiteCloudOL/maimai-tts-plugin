@@ -39,7 +39,9 @@ class IntonationMixin:
             "mode": profile.tone.mode,
             "default_tone": profile.tone.emotion,
             "allowed_tones": allowed if profile.tone.mode == "dynamic" else [],
-            "tone_meanings": tone_choices(allowed, profile.tone.labels, profile.tone.directions),
+            "tone_meanings": tone_choices(
+                allowed, profile.tone.labels, profile.tone.directions, kind=profile.kind, model=profile.model,
+            ),
             "format": "[mmtts:语调ID]正文" if profile.tone.mode == "dynamic" else "直接填写朗读正文",
         }
         limit = direction_limit(profile)

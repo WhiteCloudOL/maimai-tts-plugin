@@ -11,6 +11,7 @@ from ..domain.breeze_control import EVENT_PATTERN, control_prompt, event_tags
 from ..domain.intonation import parse_tone_tag, tone_capability, tone_choices, tone_prompt
 from ..domain.models import Features, Profile, TTSError, safe_validation_error
 from ..domain.prompts import has_variable, prompt_template, render_prompt
+from ..domain.siliconflow import short_instruction_guidance
 from ..api.parameters import parameter_schema
 from .intonation import apply_tone, breeze_requests
 
@@ -31,8 +32,14 @@ def speech_tone_prompt(profile: Profile, features: Features, *, automatic: bool,
         prompt = tone_prompt(
             allowed, features.tone_prompt_language, automatic=automatic, default=profile.tone.emotion,
             direction_limit=direction_limit(profile), weighted=profile.kind == "cosyvoice", template=template,
-            labels=profile.tone.labels, directions=profile.tone.directions,
+            labels=profile.tone.labels,
+            directions={**cap.get("directions", {}), **profile.tone.directions},
         )
+    guidance = short_instruction_guidance(
+        profile.kind, profile.model, features.tone_prompt_language, instructions=profile.instructions,
+    )
+    if guidance:
+        prompt += "\n" + guidance
     return prompt + "\n" + {
         "zh": "控制标记与台词放在同一正文中，标签后紧跟完整朗读内容，不能只输出标签。ID 和事件原样取自当前列表，示例中的占位符须替换为实际值；拿不准时直接输出原台词，沿用默认语调。",
         "en": "Keep controls and complete dialogue together; never return a tag alone. Copy IDs and events exactly from the current lists and replace example placeholders with actual values. When uncertain, return the original plain dialogue using the default delivery.",

@@ -219,5 +219,7 @@ def public_profile(profile: Profile) -> Dict[str, Any]:
     return {"provider_id": profile.id, "provider_name": profile.name, "kind": profile.kind,
             "model_id": profile.model, "voice_id": profile.voice,
             "tone_supported": capability is not None, "tone_mode": profile.tone.mode, "default_tone": profile.tone.emotion,
-            "allowed_tones": tones, "tone_meanings": tone_choices(tones, profile.tone.labels, profile.tone.directions),
+            "allowed_tones": tones, "tone_meanings": tone_choices(
+                tones, profile.tone.labels, profile.tone.directions, kind=profile.kind, model=profile.model,
+            ),
             "style_supported": supports_style(profile.kind, profile.model, profile.voice, profile.options.resource_id, profile.options.compatibility)}

@@ -1110,6 +1110,12 @@
       .tone-choice-editor { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--line); }
       .tone-choice-editor[hidden] { display: none; }
       .tone-choice-editor textarea { min-height: 90px; }
+      .instruction-preview { min-width: 0; margin-top: 16px; padding: 14px; border: 1px solid var(--line); }
+      .instruction-preview-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+      .instruction-preview-head span { font-size: 12px; }
+      .instruction-preview.is-long .instruction-preview-count { color: var(--danger); }
+      .instruction-preview-text { margin: 10px 0; max-height: 160px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 var(--mono); }
+      .instruction-preview small { display: block; line-height: 1.7; }
       @media (max-width: 700px) {
         .prompt-card-grid, .tone-choice-list { grid-template-columns: 1fr; }
         .prompt-card { flex-direction: row; align-items: center; }
@@ -2709,7 +2715,7 @@
       function modelStyleField(p) {
         const supported = supportsVoiceStyle(p);
         const parent = styleOverride(state.modelEditor.root.instructions);
-        return `<div class="wide" data-style-slot="model" ${supported ? "" : "hidden"}>${supported ? `<div class="field wide"><label for="model-style">模型风格描述（选填）</label><textarea id="model-style" class="maibot-input input" data-field="instructions" maxlength="4096" rows="3" placeholder="${h(parent || "留空沿用平台默认风格")}">${h(p.instructions)}</textarea><small>留空沿用平台默认风格；音色中可分别设置风格。</small><small>当前平台默认：${h(parent || "未设置")}</small></div>` : ""}</div>`;
+        return `<div class="wide" data-style-slot="model" ${supported ? "" : "hidden"}>${supported ? `<div class="field wide"><label for="model-style">模型风格描述（选填）</label><textarea id="model-style" class="maibot-input input" data-field="instructions" maxlength="4096" rows="3" placeholder="${h(parent || "留空沿用平台默认风格")}">${h(p.instructions)}</textarea><small>留空沿用平台默认风格；音色中可分别设置风格。</small><small>当前平台默认：${h(parent || "未设置")}</small>${instructionHint(p)}</div>` : ""}</div>`;
       }
       function platformStyleForm(p) {
         const supported = p.models.length ? p.models.some((model) => {
@@ -2719,8 +2725,11 @@
             supportsVoiceStyle(selected, voice.id, voice.resource_id || selected.options.resource_id));
         }) : supportsVoiceStyle(p);
         if (!supported) return "";
+        const hint = p.models.some((model) => toneCapability(modelProfile(p, model))?.recommended_instruction_length)
+          ? " CosyVoice2 建议把最终风格与语调合计精简至约 20 字符；较长的人物设定可能被读入音频。"
+          : "";
         return area("instructions", "平台默认风格（选填）", p.instructions,
-          "供本平台下的模型继承，按目标模型支持的指令填写。模型和音色留空时逐级继承，填写后独立覆盖。");
+          "供本平台下的模型继承，按目标模型支持的指令填写。模型和音色留空时逐级继承，填写后独立覆盖。" + hint);
       }
       function openModelDialog(id, view = "model") {
         state.objectAudio = "";
@@ -2822,11 +2831,11 @@
           labels = state.intonation.labels;
         if (!modes.some(([key]) => key === mode))
           modes.push([mode, "当前设置 · 需调整模型或音色"]);
-        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(["cosy_emotion", "minimax_emotion"].includes(cap.protocol) ? labels[key] : tone.labels?.[key] || labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? toneChoicesForm(p, scope, tone, cap) : ""}` : ""}</div>${!inherited && (!cap || ["cosy_emotion", "minimax_emotion"].includes(cap.protocol)) && (Object.keys(tone.labels || {}).length || Object.keys(tone.directions || {}).length) ? `<p class="muted">当前组合使用系统语调定义，请先清除先前组合的编辑。</p><button class="maibot-button key small" data-action="reset-native-tone" data-tone-scope="${scope}">恢复系统语调定义</button>` : ""}</section>`;
+        return `<section class="wide tone-settings" data-tone-form="${scope}"><div class="section-title"><h3>${isVoice ? "此音色的语音语调" : "语音语调"}</h3></div><p class="muted">${h(cap?.note || preset(p)?.tone_hint || "此组合使用平台原生语速等参数；受控语调选项按模型、音色和资源的支持范围提供。")}</p><div class="form-grid"><div class="field"><label for="tone-mode-${scope}">语调模式</label><select id="tone-mode-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="mode">${modes.map(([key, label]) => `<option value="${key}" ${mode === key ? "selected" : ""}>${h(label)}</option>`).join("")}</select><small>固定语调直接使用配置；动态模式才向麦麦提供标签规则。音色设置优先于模型。</small></div>${!inherited && cap && tone.mode !== "off" ? `<div class="field"><label for="tone-emotion-${scope}">${tone.mode === "dynamic" ? "缺少标签时使用的语调" : "固定语调"}</label><select id="tone-emotion-${scope}" class="maibot-input input" data-tone-scope="${scope}" data-tone-key="emotion">${cap.tones.map((key) => `<option value="${key}" ${tone.emotion === key ? "selected" : ""}>${h(["cosy_emotion", "minimax_emotion"].includes(cap.protocol) ? labels[key] : tone.labels?.[key] || labels[key])} · ${key}</option>`).join("")}</select></div>${tone.mode === "dynamic" ? toneChoicesForm(p, scope, tone, cap) : ""}` : ""}</div>${!inherited && (!cap || ["cosy_emotion", "minimax_emotion"].includes(cap.protocol)) && (Object.keys(tone.labels || {}).length || Object.keys(tone.directions || {}).length) ? `<p class="muted">当前组合使用系统语调定义，请先清除先前组合的编辑。</p><button class="maibot-button key small" data-action="reset-native-tone" data-tone-scope="${scope}">恢复系统语调定义</button>` : ""}${instructionPreview(p, scope)}</section>`;
       }
       function toneChoicesForm(p, scope, tone, cap) {
         const native = ["cosy_emotion", "minimax_emotion"].includes(cap.protocol),
-          labels = state.intonation.labels, directions = state.intonation.directions;
+          labels = state.intonation.labels, directions = cap.directions || state.intonation.directions;
         return `<fieldset class="field wide"><legend>允许麦麦选择的语调</legend><div class="tone-choice-list">${cap.tones.map((key) => {
           const open = state.toneEditing?.scope === scope && state.toneEditing?.key === key;
           return `<div class="tone-choice" data-tone-entry="${key}"><div class="tone-choice-head"><label class="inline-check"><input type="checkbox" data-tone-allowed="${key}" data-tone-scope="${scope}" ${!tone.allowed.length || tone.allowed.includes(key) ? "checked" : ""}><span data-tone-label-display="${key}">${h(native ? labels[key] : tone.labels?.[key] || labels[key])}</span><small>${key}</small></label>${native ? "" : `<button class="maibot-button key small" data-action="edit-tone-entry" data-tone-scope="${scope}" data-tone-id="${key}" aria-expanded="${open}" aria-controls="tone-entry-${scope}-${key}">编辑</button>`}</div>${native ? "" : `<div id="tone-entry-${scope}-${key}" class="tone-choice-editor" ${open ? "" : "hidden"}><div class="field"><label for="tone-label-${scope}-${key}">显示名称</label><input id="tone-label-${scope}-${key}" class="maibot-input input" data-tone-entry-field="labels" data-tone-scope="${scope}" data-tone-id="${key}" value="${h(tone.labels?.[key] || "")}" placeholder="${h(labels[key])}" maxlength="40"></div><div class="field"><label for="tone-direction-${scope}-${key}">表达指令</label><textarea id="tone-direction-${scope}-${key}" class="maibot-input input" rows="2" data-tone-entry-field="directions" data-tone-scope="${scope}" data-tone-id="${key}" maxlength="200" placeholder="${h(directions?.[key] || "沿用系统默认表达")}">${h(tone.directions?.[key] || "")}</textarea><small>单行描述，不含标签；留空沿用系统默认。ID ${key} 保持不变。</small></div><button class="maibot-button key small" data-action="reset-tone-entry" data-tone-scope="${scope}" data-tone-id="${key}">恢复此语调默认</button></div>`}</div>`;
@@ -2848,6 +2857,7 @@
           const option = document.querySelector(`#tone-emotion-${scope} option[value="${key}"]`);
           if (option) option.textContent = `${el.value.trim() || state.intonation.labels[key]} · ${key}`;
         }
+        refreshInstructionPreviews();
       }
       function updateTone(el) {
         const scope = el.dataset.toneScope,
@@ -2894,11 +2904,34 @@
           cap && !["cosy_emotion", "minimax_emotion"].includes(cap.protocol),
         );
       }
+      function instructionHint(p) {
+        const recommendation = toneCapability(p)?.recommended_instruction_length;
+        return recommendation ? `<small>CosyVoice2 建议用简短的说话方式描述风格，例如“声音清甜。”；最终风格与语调合计约 ${recommendation} 字符。较长的人物设定可能被读入音频，保存时保留你的原文。</small>` : "";
+      }
+      function instructionPreview(p, scope) {
+        const voice = scope === "voice" ? state.voiceEditor?.voice : savedModelVoice(p, p.voice),
+          cap = toneCapability(p, voice?.id || p.voice),
+          recommendation = cap?.recommended_instruction_length;
+        if (!recommendation) return "";
+        const style = styleOverride(voice?.instructions) || styleOverride(p.instructions) || styleOverride(state.modelEditor.root.instructions),
+          tone = voice?.tone || p.tone || emptyTone(),
+          direction = tone.mode === "off" ? "" : tone.directions?.[tone.emotion] || cap.directions[tone.emotion],
+          instruction = [style, direction].filter(Boolean).join("\n"),
+          count = [...instruction].length,
+          long = count > recommendation;
+        return `<div class="instruction-preview wide ${long ? "is-long" : ""}" data-instruction-preview="${scope}"><div class="instruction-preview-head"><strong>合并指令预览</strong><span class="instruction-preview-count" role="status" aria-live="polite">${count} 字符 · 建议约 ${recommendation} 字符${long ? " · 建议精简" : ""}</span></div><pre class="instruction-preview-text">${h(instruction || "仅朗读正文")}</pre><small>${voice ? `按音色 ${h(voice.name || voice.id || "当前编辑值")} 的生效设置显示。` : "按当前模型的生效设置显示。"}${tone.mode === "dynamic" ? "动态模式展示默认语调；本次语调标签或自由语气会替换语调表达。" : "风格按音色、模型、平台逐级继承，再附加当前语调。"}</small><small>${long ? "长指令可能被读入音频，可将人物设定概括为简短的说话方式。" : "长度为经验建议，编辑与保存保留完整内容。"}</small></div>`;
+      }
+      function refreshInstructionPreviews() {
+        if (!state.modelEditor) return;
+        document.querySelectorAll("[data-instruction-preview]").forEach((node) => {
+          node.outerHTML = instructionPreview(state.modelEditor.profile, node.dataset.instructionPreview);
+        });
+      }
       function voiceStyleField(p, editor, saved = false, design = false) {
         const v = editor.voice,
           supported = supportsVoiceStyle(p, v.id, voiceResource(p)),
           id = saved ? "saved-voice-instructions" : "voice-dialog-instructions";
-        return `<div class="wide" data-style-slot="voice" data-style-saved="${saved}" data-style-design="${design}" ${supported ? "" : "hidden"}>${supported ? `<div class="field wide"><label for="${id}">${design ? "声音设计描述" : "此音色的风格描述（选填）"}</label><textarea id="${id}" class="maibot-input input" data-voice-property="instructions" maxlength="4096" placeholder="${design ? "例如：年轻女声，明亮、温柔，语气自然" : "沿用模型风格"}">${h(v.instructions || "")}</textarea><small>留空时沿用模型风格。</small></div>` : ""}</div>`;
+        return `<div class="wide" data-style-slot="voice" data-style-saved="${saved}" data-style-design="${design}" ${supported ? "" : "hidden"}>${supported ? `<div class="field wide"><label for="${id}">${design ? "声音设计描述" : "此音色的风格描述（选填）"}</label><textarea id="${id}" class="maibot-input input" data-voice-property="instructions" maxlength="4096" placeholder="${design ? "例如：年轻女声，明亮、温柔，语气自然" : "沿用模型风格"}">${h(v.instructions || "")}</textarea><small>留空时沿用模型风格。</small>${instructionHint(p)}</div>` : ""}</div>`;
       }
       function refreshStyleControls() {
         if (!state.modelEditor) return;
@@ -6179,6 +6212,7 @@
           )
             parsed = Number(value);
           target[option] = parsed;
+          if (["instructions", "voice"].includes(key)) refreshInstructionPreviews();
           if (key === "voice" && isBreezeCloud(p)) {
             const previewVoice = $("#model-preview-voice-id");
             if (previewVoice) previewVoice.textContent = `试听 voice_id：${p.voice || "请先在音色与克隆中导入或创建音色"}`;
@@ -6377,6 +6411,7 @@
           state.voiceEditor.voice[e.target.dataset.voiceProperty] =
             e.target.value;
         if (e.target.dataset.voiceProperty) markVoiceEdited();
+        if (e.target.dataset.voiceProperty) refreshInstructionPreviews();
         if (e.target.id === "choice-search" && state.picker) {
           state.picker.search = e.target.value;
           state.picker.page = 0;
