@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440" role="img" aria-labelledby="title desc">
-<title id="title">麦麦 TTS 处理流程</title><desc id="desc">一张16:9流程图：整轮概率判定、逐段筛选、路由与平台语调、LLM自适应、音频缓存与备选、引用和附件发送。</desc>
+<title id="title">麦麦 TTS 处理流程</title><desc id="desc">一张 16:9 流程图，包含整轮概率判定、逐段筛选、可选括号清理、LLM 自适应与 Breeze 事件定位、API 分析结果复用、音频缓存与备选、引用和附件发送。</desc>
 <defs>
 <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0L12 6L0 12Z" fill="#465b68"/></marker>
 </defs>
@@ -30,12 +30,13 @@ text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-
 <path d="M2170 450H2090" class="edge"/>
 <path d="M1810 450H1730" class="edge"/>
 <path d="M1450 450H1400" class="edge"/>
-<path d="M1260 488V555H2310V640" class="edge"/>
-<path d="M180 488V555H2310V640" class="edge"/>
+<path d="M1260 488V555H2310V620" class="edge"/>
+<path d="M180 488V555H2310V620" class="edge"/>
 <path d="M2170 680H2100" class="edge"/>
 <path d="M1820 680H1760" class="edge"/>
 <path d="M1960 755V870" class="edge"/>
 <path d="M1820 910H1620V755" class="edge"/>
+<path d="M2100 888H2160V826H2220" class="edge"/>
 <path d="M2100 910H2140V970H1560" class="edge"/>
 <path d="M1620 605V580H930V640" class="edge"/>
 <path d="M1480 680H1410" class="edge"/>
@@ -44,7 +45,7 @@ text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-
 <path d="M790 680H720" class="edge"/>
 <path d="M590 755V835" class="edge"/>
 <path d="M460 910H440V850H420" class="edge"/>
-<path d="M300 820V780H420V555H2310V640" class="edge"/>
+<path d="M300 820V780H420V555H2310V620" class="edge"/>
 <path d="M720 910H830V970H1220" class="edge"/>
 <path d="M90 680H60V900H240V925" class="edge"/>
 <path d="M240 1075V1152" class="edge"/>
@@ -88,10 +89,11 @@ text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-
 <path d="M1590 380.0L1730.0 450L1590 520.0L1450.0 450Z" fill="#fff4d9" stroke="#b88b3f" stroke-width="2.5"/><text x="1590" y="441" class="node" style="font-size:24px">显式引用且</text><text x="1590" y="477" class="node" style="font-size:24px">引用保留关闭?</text>
 <rect x="1120.0" y="412.0" width="280" height="76" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><text x="1260" y="459" class="node" style="font-size:24px">加入本轮合成目标</text>
 <rect x="800.0" y="410.0" width="260" height="80" rx="40.0" fill="#e7f4ed" stroke="#55967c" stroke-width="2.5"/><text x="930" y="441" class="node" style="font-size:24px">原段原样保留</text><text x="930" y="477" class="node" style="font-size:24px">继续其他分段</text>
-<rect x="2170.0" y="640.0" width="280" height="80" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><text x="2310" y="671" class="node" style="font-size:24px">解析路由 / 音色</text><text x="2310" y="707" class="node" style="font-size:24px">校验并应用语调</text>
+<rect x="2170.0" y="620.0" width="280" height="120" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><text x="2310" y="654" class="node" style="font-size:23px">解析路由 / 音色与标签</text><text x="2310" y="688" class="node" style="font-size:23px">按设置清理朗读正文</text><text x="2310" y="722" class="node" style="font-size:23px">展示保留括号描述</text>
 <path d="M1960 605.0L2100.0 680L1960 755.0L1820.0 680Z" fill="#fff4d9" stroke="#b88b3f" stroke-width="2.5"/><text x="1960" y="671" class="node" style="font-size:24px">动态且需要</text><text x="1960" y="707" class="node" style="font-size:24px">LLM 自适应?</text>
-<rect x="1820.0" y="870.0" width="280" height="80" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><path d="M1834.0 870.0V950.0M2086.0 870.0V950.0" stroke="#6483a0" stroke-width="2"/><text x="1960" y="901" class="node" style="font-size:23px">LLM 分析 / 严格校验</text><text x="1960" y="937" class="node" style="font-size:23px">按配置重试</text>
-<path d="M1620 605.0L1760.0 680L1620 755.0L1480.0 680Z" fill="#fff4d9" stroke="#b88b3f" stroke-width="2.5"/><text x="1620" y="671" class="node" style="font-size:24px">最终参数</text><text x="1620" y="707" class="node" style="font-size:24px">命中缓存?</text>
+<rect x="1820.0" y="870.0" width="280" height="80" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><path d="M1834.0 870.0V950.0M2086.0 870.0V950.0" stroke="#6483a0" stroke-width="2"/><text x="1960" y="901" class="node" style="font-size:23px">LLM 参考原文语气</text><text x="1960" y="937" class="node" style="font-size:23px">按朗读正文校验锚点</text>
+<rect x="2220.0" y="773.0" width="290" height="106" rx="14" fill="#e7f4ed" stroke="#55967c" stroke-width="2.5"/><text x="2365" y="804" class="node" style="font-size:23px">返回原文、朗读正文</text><text x="2365" y="836" class="node" style="font-size:23px">与语调控制</text><text x="2365" y="868" class="node" style="font-size:23px">供高级 API 复用</text>
+<path d="M1620 605.0L1760.0 680L1620 755.0L1480.0 680Z" fill="#fff4d9" stroke="#b88b3f" stroke-width="2.5"/><text x="1620" y="671" class="node" style="font-size:23px">实际正文与参数</text><text x="1620" y="707" class="node" style="font-size:24px">命中缓存?</text>
 <rect x="1130.0" y="640.0" width="280" height="80" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><text x="1270" y="671" class="node" style="font-size:23px">请求 TTS 服务</text><text x="1270" y="707" class="node" style="font-size:23px">合并重复请求 / 限流</text>
 <rect x="790.0" y="640.0" width="280" height="80" rx="6" fill="#edf4fb" stroke="#6483a0" stroke-width="2.5"/><text x="930" y="671" class="node" style="font-size:23px">输出格式 / 转码缓存</text><text x="930" y="707" class="node" style="font-size:23px">SILK 可补齐整数秒</text>
 <path d="M590 605.0L720.0 680L590 755.0L460.0 680Z" fill="#fff4d9" stroke="#b88b3f" stroke-width="2.5"/><text x="590" y="689" class="node" style="font-size:24px">音频准备成功?</text>
@@ -134,7 +136,8 @@ text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-
 <text x="310" y="540" class="label">校验入口开关与参数</text>
 <text x="1790" y="664" class="label">否</text>
 <text x="1976" y="818" class="label">是</text>
-<text x="1735" y="894" class="label">有效</text>
+<text x="1720" y="894" class="label">应用语调 / 插入事件</text>
+<text x="2162" y="810" class="label">仅分析</text>
 <text x="2210" y="952" class="label">重试耗尽</text>
 <text x="1636" y="596" class="label">是</text>
 <text x="1445" y="664" class="label">否</text>
