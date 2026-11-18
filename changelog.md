@@ -1,5 +1,17 @@
 # 更新日志
 
+## 2.2.4
+
+### 主要功能
+
+- CosyVoice2 指令预览：模型与音色窗口实时展示继承后风格与默认语调的合并内容、字符数和精简建议，适配 PC 与手机。([#9](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/9))
+
+### 细节
+
+- CosyVoice2 语调：内置语调采用简短表达，普通动态语调、语音工具、LLM 自适应与插件 API 目录共用模型专属规则；中、英、日提示根据当前风格计算自由描述建议余量。([#9](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/9))
+- 语调缓存：自适应决定按实际生效的完整提示词区分，风格长度与表达规则变化后重新分析；合成结果按最终实际指令复用。([#9](https://github.com/WhiteCloudOL/maimai-tts-plugin/issues/9))
+- 语调编辑：展开表达指令时，同一行的其他语调卡片保持内容高度。
+
 ## 2.2.3
 
 ### 主要功能
