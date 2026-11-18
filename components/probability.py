@@ -15,11 +15,11 @@ from ..domain.breeze_control import parse_breeze_text
 from ..domain.intonation import parse_tone_tag
 from ..domain.models import TTSError
 from ..domain.probability_delivery import batch_text, delivery_attachments, source_key, speech_text
+from ..domain.speech_text import spoken_text_of
 from ..infrastructure.voice_codec import voice_segment
 from ..services.intonation import validate_requested_direction, validate_requested_tone
 from ..services.format_correction import correct_speech_arguments
 from ..services.speech_input import validate_speech_arguments
-from ..services.tts import spoken_text_of
 from .adaptive_tone import ProbabilityToneAdapter
 
 
@@ -161,6 +161,7 @@ class ProbabilityMixin:
         started = monotonic()
         original_response = response
         parsed = parse_tone_tag(response)
+        features = self.features
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
         targeted = self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
         tag_error = parsed.error
@@ -170,12 +171,8 @@ class ProbabilityMixin:
         if breeze.marked:
             profile = self.primary_tone_profile()
             breeze_controls = profile is not None and profile.kind == "breeze"
-            if breeze_controls:
-                tag_error = tag_error or breeze.error
-                if any(part.direction for part in breeze.parts) and profile.tone.mode != "dynamic":
-                    tag_error = "Breeze 自由语气需要在当前模型或音色中启用动态语调"
-                if not breeze.display_text:
-                    tag_error = "自动语音的控制标记后需要填写朗读正文"
+            if breeze_controls and not breeze.display_text:
+                tag_error = "自动语音的控制标记后需要填写朗读正文"
         display_text = breeze.display_text if breeze_controls else parsed.text
         if (parsed.tone or parsed.direction) and not tag_error:
             profile = self.primary_tone_profile()
@@ -192,7 +189,10 @@ class ProbabilityMixin:
             profile = self.primary_tone_profile()
             if profile is not None:
                 try:
-                    validate_speech_arguments(profile, {"text": response}, self.service.settings.max_text_length)
+                    validate_speech_arguments(
+                        profile, {"text": response}, self.service.settings.max_text_length,
+                        strip_parentheticals=features.strip_stage_directions,
+                    )
                 except TTSError as exc:
                     tag_error = str(exc)
         if tag_error and self.config.plugin.enabled:
@@ -200,7 +200,7 @@ class ProbabilityMixin:
             if profile is not None:
                 revision = self.store.config.revision
                 result = await correct_speech_arguments(
-                    self.ctx, self.features, profile, {"text": response}, self.service.log,
+                    self.ctx, features, profile, {"text": response}, self.service.log,
                     automatic=True, max_text_length=self.service.settings.max_text_length,
                 )
                 if result.arguments is not None and self.store.config.revision == revision:

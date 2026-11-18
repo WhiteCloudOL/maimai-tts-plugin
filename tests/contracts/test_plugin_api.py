@@ -253,6 +253,26 @@ async def test_stage_direction_cleanup_preserves_local_delivery_instruction(serv
 
 
 @pytest.mark.asyncio
+async def test_stage_direction_controls_do_not_suppress_api_auto_tone(serve, service):
+    api, calls, bot = await setup_api(serve, service, "breeze")
+    service.store._config.feature.strip_stage_directions = True
+    raw = "（小声念出[语气:严肃]）你好呀"
+    try:
+        validated = await api.call("validate", text=raw, control={"mode": "auto"})
+        assert validated["ok"] and validated["data"]["llm_required"]
+        analyzed = await api.call("analyze", text=raw)
+        assert analyzed["ok"] and analyzed["data"]["llm_used"]
+        assert analyzed["data"]["spoken_text"] == "你好呀"
+        assert analyzed["data"]["display_text"] == "（小声念出）你好呀"
+        result = await api.call("advanced", text=raw, control=analyzed["data"]["control"])
+        assert result["ok"] and calls[0]["text"] == "你好呀"
+        assert "轻柔" in calls[0]["instructions"] and "严肃" not in calls[0]["instructions"]
+        bot.ctx.call_capability.assert_awaited_once()
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
 async def test_non_breeze_adaptation_can_use_original_stage_directions(serve, service):
     api, calls, bot = await setup_api(serve, service, "openai")
     service.store._config.feature.strip_stage_directions = True

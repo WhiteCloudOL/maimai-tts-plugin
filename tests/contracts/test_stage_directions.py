@@ -17,8 +17,8 @@ from maimai_tts_contract.domain.adaptive_tone import BreezeEvent, ToneDecision, 
 from maimai_tts_contract.domain.breeze_control import event_tags
 from maimai_tts_contract.domain.intonation import parse_tone_tag
 from maimai_tts_contract.domain.models import Features, Profile, RouteTarget, StudioConfig, TTSError
+from maimai_tts_contract.domain.speech_text import spoken_text_of, strip_stage_directions
 from maimai_tts_contract.services.intonation import clean_display_text
-from maimai_tts_contract.services.tts import spoken_text_of, strip_stage_directions
 
 
 TONES = ["neutral", "happy"]

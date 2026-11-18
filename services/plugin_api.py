@@ -15,6 +15,7 @@ from ..domain.adaptive_tone import BreezeEvent, apply_breeze_events, direction_l
 from ..domain.breeze_control import event_tags, parse_breeze_text
 from ..domain.intonation import parse_tone_tag, tone_capability
 from ..domain.models import Audio, Features, Profile, StudioConfig, TTSError, TTSOperationError, safe_validation_error
+from ..domain.speech_text import spoken_text_of
 from ..api.models import API_TIMEOUT_SECONDS, API_VERSION, APIError, APIRequest, AudioRead, AudioSend, DescriptionQuery, JobQuery, VoicesQuery
 from ..api.parameters import apply_parameters, parameter_schema, public_profile
 from ..domain.voice_catalog import get_catalog
@@ -24,7 +25,7 @@ from ..infrastructure.storage import ConfigStore
 from ..infrastructure.voice_codec import SILK_HEADER, voice_segment
 from .adaptive_tone import ProbabilityToneAdapter
 from .intonation import apply_tone, breeze_requests, clean_display_text
-from .tts import TTSService, spoken_text_of
+from .tts import TTSService
 
 
 Sender = Callable[..., Awaitable[Dict[str, Any]]]
@@ -122,10 +123,13 @@ class PluginAPIService:
                         raise APIError("INVALID_PARAMETER", "语气分析请使用 auto 模式和可选 style_hint")
                     config, selected = self.prepare(request)
                     if operation == "validate":
-                        return {"ok": True, "data": {"revision": config.revision,
-                                "targets": [self.describe(profile) for profile in selected],
-                                "output": request.output,
-                                "llm_required": request.control.mode == "auto" and self._needs_analysis(request, selected[0])}}
+                        spoken = spoken_text_of(request.text, strip=config.feature.strip_stage_directions)
+                        return {"ok": True, "data": {
+                            "revision": config.revision,
+                            "targets": [self.describe(profile) for profile in selected],
+                            "output": request.output,
+                            "llm_required": request.control.mode == "auto" and self._needs_analysis(request, selected[0], spoken),
+                        }}
                     return await self._start(request, background=False, analysis_profile=selected[0], config=config)
                 if operation == "get_audio":
                     query = AudioRead.model_validate(kwargs)
@@ -298,11 +302,11 @@ class PluginAPIService:
             raise APIError("INVALID_PARAMETER", "source 请选择 saved、preset 或 account")
         return {"provider_id": profile.id, "model_id": profile.model, "default_voice_id": profile.voice, "voices": voices}
 
-    def _needs_analysis(self, request: APIRequest, profile: Profile) -> bool:
-        parsed = parse_tone_tag(request.text)
+    def _needs_analysis(self, request: APIRequest, profile: Profile, spoken: str) -> bool:
+        parsed = parse_tone_tag(request.text.strip())
         return (tone_capability(profile.kind, profile.model, profile.voice, profile.options.resource_id) is not None
                 and parsed.tone is None and not parsed.direction
-                and not (profile.kind == "breeze" and any(part.direction for part in parse_breeze_text(parsed.text).parts)))
+                and not (profile.kind == "breeze" and any(part.direction for part in parse_breeze_text(spoken).parts)))
 
     async def analyze(self, request: APIRequest, profile: Profile, features: Features) -> Dict[str, Any]:
         spoken = spoken_text_of(request.text, strip=features.strip_stage_directions)
@@ -310,7 +314,7 @@ class PluginAPIService:
                   "parameters": request.parameters,
                   "spoken_text": spoken,
                   "display_text": clean_display_text(request.text, breeze=profile.kind == "breeze")}
-        if not self._needs_analysis(request, profile):
+        if not self._needs_analysis(request, profile, spoken):
             return dict(result, control_status="existing" if result["tone_supported"] else "unsupported",
                         control={"mode": "manual" if result["tone_supported"] else "off"}, llm_used=False)
         adapter = ProbabilityToneAdapter(

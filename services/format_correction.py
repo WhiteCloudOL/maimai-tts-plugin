@@ -47,8 +47,9 @@ async def correct_speech_arguments(
     *, automatic: bool, max_text_length: int,
 ) -> SpeechCorrection:
     """在独立次数预算内重生成合成参数；实际朗读正文保持一致，成功参数进入正常缓存。"""
+    strip_parentheticals = features.strip_stage_directions
     try:
-        validate_speech_arguments(profile, arguments, max_text_length)
+        validate_speech_arguments(profile, arguments, max_text_length, strip_parentheticals=strip_parentheticals)
         return SpeechCorrection(arguments)
     except TTSError as exc:
         error = str(exc)
@@ -112,14 +113,17 @@ async def correct_speech_arguments(
                 raise TTSError("普通回复的纠正结果只包含 text 字段")
             if set(candidate) - set(arguments):
                 raise TTSError("格式纠正只能使用原请求已有的参数")
-            validate_speech_arguments(profile, candidate, max_text_length)
+            validate_speech_arguments(profile, candidate, max_text_length, strip_parentheticals=strip_parentheticals)
             if clean_display_text(candidate["text"], breeze=profile.kind == "breeze") != visible:
                 raise TTSError("格式纠正须逐字保留原始可见正文")
             for key in ("voice", "speed"):
                 value = arguments.get(key)
                 if key == "speed" and value is not None:
                     try:
-                        validate_speech_arguments(profile, {"text": visible or "TTS", key: value}, max_text_length)
+                        validate_speech_arguments(
+                            profile, {"text": visible or "TTS", key: value}, max_text_length,
+                            strip_parentheticals=strip_parentheticals,
+                        )
                     except TTSError:
                         # 平台范围或类型无效时，重新生成该参数；有效的原始倍率保持一致。
                         continue

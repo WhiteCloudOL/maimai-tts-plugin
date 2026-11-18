@@ -12,6 +12,7 @@ from ..domain.intonation import parse_tone_tag, tone_capability, tone_choices, t
 from ..domain.models import Features, Profile, TTSError, safe_validation_error
 from ..domain.prompts import has_variable, prompt_template, render_prompt
 from ..domain.siliconflow import short_instruction_guidance
+from ..domain.speech_text import strip_stage_directions
 from ..api.parameters import parameter_schema
 from .intonation import apply_tone, breeze_requests
 
@@ -82,7 +83,9 @@ def speech_tool_prompt(profile: Profile, features: Features, *, query_available:
     }[features.tone_prompt_language] + json.dumps(speech_tool_parameters(profile, features), ensure_ascii=False)
 
 
-def validate_speech_arguments(profile: Profile, arguments: Dict[str, Any], max_text_length: int) -> None:
+def validate_speech_arguments(
+    profile: Profile, arguments: Dict[str, Any], max_text_length: int, *, strip_parentheticals: bool,
+) -> None:
     """校验可修正的调用参数与控制标记；本函数执行纯本地计算。"""
     if set(arguments) - {"text", "voice", "speed"}:
         raise TTSError("语音参数仅包含 text、voice、speed")
@@ -112,10 +115,11 @@ def validate_speech_arguments(profile: Profile, arguments: Dict[str, Any], max_t
     if len(parsed.text) > max_text_length:
         raise TTSError(f"朗读正文超过 {max_text_length} 字符上限")
     if selected.kind == "breeze":
+        spoken = strip_stage_directions(parsed.text) if strip_parentheticals else parsed.text
         events = event_tags(selected.options.breeze_language_code, local=selected.options.breeze_api_mode == "self_hosted")
         allowed_events = {tag for values in events.values() for tag in values}
-        if any(match.group() not in allowed_events for match in EVENT_PATTERN.finditer(parsed.text)):
+        if any(match.group() not in allowed_events for match in EVENT_PATTERN.finditer(spoken)):
             raise TTSError("Breeze 音频事件须原样使用当前接口和语种的事件表：" + " ".join(sorted(allowed_events)))
-        breeze_requests(selected, parsed.text, parsed.tone, direction=parsed.direction)
+        breeze_requests(selected, spoken, parsed.tone, direction=parsed.direction)
     else:
         apply_tone(selected, parsed.tone, direction=parsed.direction)

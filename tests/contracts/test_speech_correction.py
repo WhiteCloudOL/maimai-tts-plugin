@@ -67,6 +67,27 @@ async def test_tool_format_repair_is_validated_before_actual_tts(serve, service,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["tool", "reply"])
+async def test_controls_inside_stage_directions_do_not_trigger_repair(serve, service, entry):
+    bot, calls, selected = await setup_bot(serve, service, kind="breeze", strip_stage_directions=True)
+    selected.tone.mode = "fixed"
+    raw = "（小声念出[语气:严肃]）你好呀"
+    if entry == "tool":
+        result = await bot.handle_tts_tool(raw, stream_id="test-stream")
+        assert result["success"], result
+    else:
+        prepared = await prepare_reply(bot, raw)
+        response = prepared["modified_kwargs"]["response"]
+        assert response == raw
+        await bot.handle_probability_tts(
+            "before_send", "reply-1", session_id="test-stream", chat={"is_group_chat": False},
+            messages=[{"segments": [{"type": "text", "data": response}]}],
+        )
+    assert [call["text"] for call in calls] == ["你好呀"]
+    bot.ctx.call_capability.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_repair_failure_keeps_original_text_without_tts_or_error_messages(serve, service):
     bot, calls, _ = await setup_bot(serve, service)
     bot.ctx.call_capability.return_value = {"success": True, "response": "broken JSON"}
