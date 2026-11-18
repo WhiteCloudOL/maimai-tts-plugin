@@ -11,7 +11,7 @@ import av
 import hashlib
 import json
 
-from ..domain.adaptive_tone import apply_breeze_events, direction_limit, parse_adaptive_tone
+from ..domain.adaptive_tone import BreezeEvent, apply_breeze_events, direction_limit, parse_adaptive_tone
 from ..domain.breeze_control import event_tags, parse_breeze_text
 from ..domain.intonation import parse_tone_tag, tone_capability
 from ..domain.models import Audio, Features, Profile, StudioConfig, TTSError, TTSOperationError, safe_validation_error
@@ -126,7 +126,7 @@ class PluginAPIService:
                                 "targets": [self.describe(profile) for profile in selected],
                                 "output": request.output,
                                 "llm_required": request.control.mode == "auto" and self._needs_analysis(request, selected[0])}}
-                    return await self._start(request, background=False, analysis_profile=selected[0])
+                    return await self._start(request, background=False, analysis_profile=selected[0], config=config)
                 if operation == "get_audio":
                     query = AudioRead.model_validate(kwargs)
                     return {"ok": True, "data": self.audio.read(**query.model_dump())}
@@ -212,18 +212,23 @@ class PluginAPIService:
                 config, request.provider_id, request.model_id, request.voice_id,
             )]
             for profile in selected:
-                self._speech_text(request, profile)
+                self._prepare_speech(request, profile, config.feature)
         except TTSOperationError:
             raise
         except TTSError as exc:
             raise APIError("INVALID_PARAMETER", str(exc)) from None
         return config, selected
 
-    def _speech_text(self, request: APIRequest, profile: Profile) -> str:
-        parsed = parse_tone_tag(request.text)
+    def _prepare_speech(
+        self, request: APIRequest, profile: Profile, features: Features,
+    ) -> Tuple[str, Tuple[BreezeEvent, ...]]:
+        """校验实际朗读正文，分别返回带头部控制的原文与结构化事件。"""
+        parsed = parse_tone_tag(request.text.strip())
         if parsed.error:
             raise APIError("INVALID_PARAMETER", parsed.error)
-        text = request.text
+        text = request.text.strip()
+        spoken = spoken_text_of(text, strip=features.strip_stage_directions)
+        events: Tuple[BreezeEvent, ...] = ()
         explicit = request.control.tone is not None or bool(request.control.style or request.control.events)
         if explicit and (parsed.tone is not None or parsed.direction):
             raise APIError("INVALID_PARAMETER", "结构化语调与正文头部控制请选择一种")
@@ -234,26 +239,24 @@ class PluginAPIService:
                 "direction": request.control.style,
                 **({"events": request.control.events} if profile.kind == "breeze" else {}),
             }), profile.tone.allowed or (tone_capability(profile.kind, profile.model, profile.voice, profile.options.resource_id) or {}).get("tones", []),
-                breeze=profile.kind == "breeze", free_direction=direction_limit(profile) > 0, text=request.text,
+                breeze=profile.kind == "breeze", free_direction=direction_limit(profile) > 0, text=spoken,
                 event_options=event_tags(profile.options.breeze_language_code, local=profile.options.breeze_api_mode == "self_hosted") if profile.kind == "breeze" else {})
             if request.control.events and profile.kind != "breeze":
                 raise APIError("INVALID_PARAMETER", "events 请用于 Breeze 音频事件")
-            apply_tone(profile, decision.tone, direction=decision.direction)
-            if profile.kind == "breeze":
-                text = apply_breeze_events(text, decision.events)
+            events = decision.events
             prefix = "[mmtts:" + decision.tone + "]" if decision.tone else ""
             if decision.direction:
                 prefix = "[mmtts:style=" + decision.direction + "]"
             text = prefix + text
         tagged = parse_tone_tag(text)
         if profile.kind == "breeze":
-            breeze_requests(profile, tagged.text, tagged.tone, direction=tagged.direction)
+            breeze_requests(profile, apply_breeze_events(spoken, events), tagged.tone, direction=tagged.direction)
         else:
             effective, _ = apply_tone(profile, tagged.tone, direction=tagged.direction)
             if (effective.kind == "volcengine" and effective.instructions and effective.options.enable_ssml
                     and effective.options.volc_instruction_mode == "cot"):
                 raise APIError("INVALID_PARAMETER", "SSML 与 COT 请分别启用")
-        return text
+        return text, events
 
     @staticmethod
     def describe(profile: Profile) -> Dict[str, Any]:
@@ -302,15 +305,17 @@ class PluginAPIService:
                 and not (profile.kind == "breeze" and any(part.direction for part in parse_breeze_text(parsed.text).parts)))
 
     async def analyze(self, request: APIRequest, profile: Profile, features: Features) -> Dict[str, Any]:
+        spoken = spoken_text_of(request.text, strip=features.strip_stage_directions)
         result = {**public_profile(profile), "text": request.text,
                   "parameters": request.parameters,
+                  "spoken_text": spoken,
                   "display_text": clean_display_text(request.text, breeze=profile.kind == "breeze")}
         if not self._needs_analysis(request, profile):
             return dict(result, control_status="existing" if result["tone_supported"] else "unsupported",
                         control={"mode": "manual" if result["tone_supported"] else "off"}, llm_used=False)
         adapter = ProbabilityToneAdapter(
-            self.ctx, features, spoken_text_of(request.text, strip=features.strip_stage_directions), self.tts.log,
-            style_hint=request.control.style_hint, required=True, purpose="api"
+            self.ctx, features, spoken, self.tts.log, source_text=request.text.strip(),
+            style_hint=request.control.style_hint, required=True, purpose="api",
         )
         try:
             decision = await adapter(profile)
@@ -340,7 +345,10 @@ class PluginAPIService:
                 return {"ok": False, "request_id": request.request_id,
                         "error": {"code": "INTERNAL_ERROR", "message": "请按请求编号查看插件日志"}}
 
-    async def _start(self, request: APIRequest, *, background: bool, analysis_profile: Optional[Profile] = None) -> Dict[str, Any]:
+    async def _start(
+        self, request: APIRequest, *, background: bool, analysis_profile: Optional[Profile] = None,
+        config: Optional[StudioConfig] = None,
+    ) -> Dict[str, Any]:
         if not request.request_id:
             request.request_id = uuid4().hex
         try:
@@ -351,7 +359,8 @@ class PluginAPIService:
         except (TypeError, ValueError):
             raise APIError("INVALID_PARAMETER", "parameters 请使用标准 JSON 类型与有限数值") from None
         fingerprint = hashlib.sha256(encoded.encode()).hexdigest()
-        config = self.store.config
+        if config is None:
+            config = self.store.config
         feature = config.feature
         job = self.jobs.start(request.request_id, fingerprint,
                               lambda job_id: self._guard(request, lambda: self.analyze(request, analysis_profile, feature)
@@ -369,13 +378,12 @@ class PluginAPIService:
         _, prepared = self.prepare(request, config)
         selected: Dict[str, Profile] = {}
         decisions: Dict[str, Any] = {}
-        # 结构化手动控制已按全部目标校验，统一序列化为现有合成链路识别的控制文本。
         initial = prepared[0]
-        text = self._speech_text(request, self.transform(request, initial))
+        text, events = self._prepare_speech(request, initial, config.feature)
         # 语调适配器与 synthesize 共用同一份最终朗读文本，事件锚点不会因清洗而错位。
         adapter = ProbabilityToneAdapter(
             self.ctx, config.feature, spoken_text_of(text, strip=config.feature.strip_stage_directions), self.tts.log,
-            style_hint=request.control.style_hint, required=True, purpose="api"
+            source_text=request.text.strip(), style_hint=request.control.style_hint, required=True, purpose="api",
         )
 
         def transform(profile: Profile) -> Profile:
@@ -399,7 +407,7 @@ class PluginAPIService:
                                           model_id=request.model_id, voice=request.voice_id or None,
                                           delivery_format=delivery, refresh_cache=request.refresh_cache,
                                           tone_adapter=adapt if request.control.mode == "auto" else None,
-                                          profile_transform=transform)
+                                          profile_transform=transform, breeze_events=events)
         self.require_enabled()
         actual = selected[audio.provider_id]
         decision = decisions.get(audio.provider_id)

@@ -17,7 +17,7 @@ import re
 
 from ..settings.config import RuntimeSection
 from ..domain.breeze_control import boundary_pauses, parse_breeze_text
-from ..domain.adaptive_tone import ToneAdapter, apply_breeze_events
+from ..domain.adaptive_tone import BreezeEvent, ToneAdapter, apply_breeze_events
 from ..domain.models import Audio, Profile, RouteTarget, StudioConfig, TTSError, TTSOperationError, safe_validation_error
 from ..providers import PROVIDERS
 from ..providers.base import Provider
@@ -38,6 +38,8 @@ from .cache_keys import CacheKeys
 _STAGE_DIRECTION_PAIRS = {"（": "）", "(": ")"}
 _STAGE_DIRECTION_CLOSERS = {closing: opening for opening, closing in _STAGE_DIRECTION_PAIRS.items()}
 _HAS_CHINESE = re.compile(r"[一-鿿]")
+_BRACKETED_TEXT = re.compile(r"\[[^\[\]\r\n]*\]")
+_SPACES_OUTSIDE_BRACKETS = re.compile(_BRACKETED_TEXT.pattern + r"|[ \t]{2,}")
 
 
 def strip_stage_directions(text: str) -> str:
@@ -53,9 +55,11 @@ def strip_stage_directions(text: str) -> str:
     if not text:
         return text
 
-    spans = []
-    stack = []
-    for index, char in enumerate(text):
+    spans: List[Tuple[int, int]] = []
+    stack: List[Tuple[str, int]] = []
+    # 屏蔽方括号内的内容并保留位置，避免将语气描述里的圆括号识别成台词。
+    body = _BRACKETED_TEXT.sub(lambda match: " " * len(match[0]), text)
+    for index, char in enumerate(body):
         if char in _STAGE_DIRECTION_PAIRS:
             stack.append((char, index))
         elif char in _STAGE_DIRECTION_CLOSERS:
@@ -83,7 +87,9 @@ def strip_stage_directions(text: str) -> str:
         pieces.append(text[cursor:start])
         cursor = end
     pieces.append(text[cursor:])
-    cleaned = re.sub(r"[ \t]{2,}", " ", "".join(pieces)).strip()
+    cleaned = _SPACES_OUTSIDE_BRACKETS.sub(
+        lambda match: match[0] if match[0].startswith("[") else " ", "".join(pieces),
+    ).strip()
     return cleaned or text
 
 
@@ -246,6 +252,7 @@ class TTSService:
         delivery_format: Optional[str] = None,
         tone_adapter: Optional[ToneAdapter] = None,
         profile_transform: Optional[Callable[[Profile], Profile]] = None,
+        breeze_events: Tuple[BreezeEvent, ...] = (),
     ) -> Audio:
         if self.closed:
             raise TTSError("TTS 服务正在重载，请稍后重试")
@@ -271,6 +278,7 @@ class TTSService:
                         delivery_format=delivery_format,
                         tone_adapter=tone_adapter,
                         profile_transform=profile_transform,
+                        breeze_events=breeze_events,
                     ),
                     timeout=540,
                 )
@@ -301,8 +309,8 @@ class TTSService:
         delivery_format: Optional[str],
         tone_adapter: Optional[ToneAdapter] = None,
         profile_transform: Optional[Callable[[Profile], Profile]] = None,
+        breeze_events: Tuple[BreezeEvent, ...] = (),
     ) -> Audio:
-        raw_text = text
         if not isinstance(text, str) or not text.strip():
             raise TTSError("待合成文本不能为空")
         if delivery_format not in {None, "silk", "source"}:
@@ -317,9 +325,8 @@ class TTSService:
             raise TTSError(f"文本超过 {self.settings.max_text_length} 字符上限")
         if config is None:
             config = self.store.config
-        # 括号里的环境与动作描写只属于文字消息：开启后朗读时剔除，文字消息仍保留原样。
-        # 语调适配器与这里共用 spoken_text_of，保证事件锚点基于同一份最终朗读文本。
-        spoken_text = spoken_text_of(raw_text, strip=config.feature.strip_stage_directions)
+        # 头部控制与展示文字取自原文，局部事件在清理后的朗读正文中定位。
+        spoken_text = strip_stage_directions(text) if config.feature.strip_stage_directions else text
         profiles = {profile.id: profile for profile in config.profiles}
         if profile_id:
             profile = profiles.get(profile_id)
@@ -396,6 +403,8 @@ class TTSService:
                 requested = parsed.tone
                 direction = parsed.direction
                 speech_text = spoken_text
+                if selected.kind == "breeze" and breeze_events:
+                    speech_text = apply_breeze_events(spoken_text, breeze_events)
                 if tone_adapter is not None and selected.tone.mode == "dynamic" and not (requested or direction or free_directions):
                     decision = await tone_adapter(selected)
                     if decision is not None:

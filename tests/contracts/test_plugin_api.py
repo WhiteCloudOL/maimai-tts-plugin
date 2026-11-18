@@ -14,6 +14,7 @@ import pytest
 from maimai_tts_contract.api.parameters import apply_parameters, parameter_schema
 from maimai_tts_contract.api.endpoints import PluginAPIMixin
 from maimai_tts_contract.domain.bailian import QWEN_AUDIO_MODELS
+from maimai_tts_contract.domain.breeze_control import event_tags
 from maimai_tts_contract.domain.models import Audio, Features, Profile, RouteTarget, StudioConfig, Voice
 from maimai_tts_contract.api.models import APIError
 from maimai_tts_contract.infrastructure.api_runtime import APIAudioStore, APIJobs
@@ -190,6 +191,80 @@ async def test_analysis_result_can_be_used_in_advanced_without_second_llm_call(s
         assert result["ok"], result
         assert bot.ctx.call_capability.await_count == 1
         assert any("轻声安慰" in part["content"] for part in bot.ctx.call_capability.await_args.kwargs["prompt"])
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strip", [False, True])
+async def test_breeze_analysis_roundtrips_spoken_anchors_through_public_api(serve, service, strip):
+    api, calls, bot = await setup_api(serve, service, "breeze")
+    service.store._config.feature.strip_stage_directions = strip
+    raw = "你好（微笑）呀"
+    spoken = "你好呀" if strip else raw
+    event = {"before": spoken, "tag": event_tags("zh")["zh"][1]}
+    bot.ctx.call_capability.return_value = {"success": True, "response": json.dumps({"events": [event]})}
+
+    class APIHarness(PluginAPIMixin):
+        public_api = api
+
+    harness = APIHarness()
+    try:
+        analyzed = await harness.tts_analyze({"text": raw})
+        assert analyzed["ok"], analyzed
+        analysis = analyzed["data"]
+        assert analysis["text"] == analysis["display_text"] == raw
+        assert analysis["spoken_text"] == spoken and analysis["control"]["events"] == [event]
+        prompt = bot.ctx.call_capability.await_args.kwargs["prompt"]
+        assert prompt[1] == {"role": "user", "content": spoken}
+        assert any("微笑" in entry["content"] for entry in prompt[2:]) is strip
+        request = {key: analysis[key] for key in ("text", "control", "parameters", "provider_id", "model_id", "voice_id")}
+        result = await harness.tts_advanced(request)
+        assert result["ok"], result
+        assert result["data"]["audio"]["display_text"] == raw
+        assert [call["text"] for call in calls] == [event["tag"] + spoken]
+        if strip:
+            changed = dict(request, text="你好（叹气）呀")
+            cached = await harness.tts_advanced(changed)
+            assert cached["ok"], cached
+            assert cached["data"]["audio"]["cache"]["synthesis"] == "hit"
+            assert cached["data"]["audio"]["display_text"] == changed["text"]
+            duplicate = await harness.tts_advanced(dict(request, text=raw + "，你好呀"))
+            assert duplicate["error"]["code"] == "INVALID_PARAMETER"
+            assert len(calls) == 1
+        bot.ctx.call_capability.assert_awaited_once()
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_stage_direction_cleanup_preserves_local_delivery_instruction(serve, service):
+    api, calls, bot = await setup_api(serve, service, "breeze")
+    service.store._config.feature.strip_stage_directions = True
+    direction = "轻声（带  笑）"
+    try:
+        result = await api.call("simple", text=f"[语气:{direction}]你好（点头）呀")
+        assert result["ok"], result
+        assert result["data"]["audio"]["display_text"] == "你好（点头）呀"
+        assert calls[0]["text"] == "你好呀" and direction in calls[0]["instructions"]
+        bot.ctx.call_capability.assert_not_awaited()
+    finally:
+        await api.close()
+
+
+@pytest.mark.asyncio
+async def test_non_breeze_adaptation_can_use_original_stage_directions(serve, service):
+    api, calls, bot = await setup_api(serve, service, "openai")
+    service.store._config.feature.strip_stage_directions = True
+    raw = "你好（轻声）呀"
+    try:
+        result = await api.call("simple", text=raw)
+        assert result["ok"], result
+        assert calls[0]["input"] == "你好呀"
+        assert result["data"]["audio"]["display_text"] == raw
+        prompt = bot.ctx.call_capability.await_args.kwargs["prompt"]
+        assert prompt[1]["content"] == "你好呀"
+        assert raw in prompt[2]["content"]
     finally:
         await api.close()
 

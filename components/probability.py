@@ -487,18 +487,20 @@ class ProbabilityMixin:
         """合成目标正文并计算附件身份，全部完成后由调用方一次登记发送状态。"""
         source_keys: Dict[int, str] = {}
         adapter = None
-        if self.features.probability_tone_enabled:
+        config = self.store.config
+        features = config.feature
+        if features.probability_tone_enabled:
             # 锚点的生成、校验与插入共用清洗后的正文，避免朗读文本与原文不一致时事件错位。
-            strip = self.features.strip_stage_directions
+            originals = [value for value in original_texts if value is not None]
             joined_spoken = "\n".join(
-                spoken_text_of(value, strip=strip) for value in original_texts if value is not None
+                spoken_text_of(value, strip=features.strip_stage_directions) for value in originals
             )
-            adapter = ProbabilityToneAdapter(self.ctx, self.features, joined_spoken, self.service.log)
+            source_text = "\n".join(originals) if features.strip_stage_directions else ""
+            adapter = ProbabilityToneAdapter(self.ctx, features, joined_spoken, self.service.log, source_text=source_text)
         for index, (message, original) in enumerate(zip(messages, original_texts, strict=True)):
             if original is None:
                 continue
-            options: Dict[str, Any] = {"tone_adapter": adapter} if adapter is not None else {}
-            audio = await self._synthesize_audio(text=original, **options)
+            audio = await self._synthesize_audio(text=original, tone_adapter=adapter, config=config)
             # voice 的 data 是已知朗读正文，二进制由独立字段传递；Host 据此记录语音内容。
             display_text = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
             segment = await asyncio.to_thread(voice_segment, audio, display_text)

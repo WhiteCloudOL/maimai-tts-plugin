@@ -26,11 +26,12 @@ from ..infrastructure.diagnostics import Diagnostics
 class ProbabilityToneAdapter:
     def __init__(
         self, ctx: PluginContext, features: Features, text: str, log: Diagnostics, *, style_hint: str = "",
-        required: bool = False, purpose: str = "probability",
+        source_text: str = "", required: bool = False, purpose: str = "probability",
     ) -> None:
         self.ctx = ctx
         self.features = features.model_copy(deep=True)
         self.text = text
+        self.source_text = source_text if source_text != text else ""
         self.log = log
         self.style_hint = style_hint
         self.required = required
@@ -97,12 +98,18 @@ class ProbabilityToneAdapter:
         guidance = short_instruction_guidance(
             profile.kind, profile.model, self.features.tone_prompt_language, instructions=profile.instructions,
         )
+        if self.features.strip_stage_directions:
+            prompt += "\n" + {
+                "zh": "第一条用户消息是最终朗读正文。原文参考只用于判断说话方式；Breeze 的 events.before 只从第一条消息选取。",
+                "en": "The first user message is the spoken text. Use the source reference only to judge delivery, and choose Breeze events.before only from the first message.",
+                "ja": "最初のユーザーメッセージは朗読本文。原文の参照は話し方の判断だけに使い、Breezeのevents.beforeは最初のメッセージから選ぶ。",
+            }[self.features.tone_prompt_language]
         return prompt + "\n" + guidance if guidance else prompt
 
     async def _classify(self, profile: Profile, tones: List[str], prompt: str) -> Optional[ToneDecision]:
         timeout = self.features.probability_tone_timeout
         limit = direction_limit(profile)
-        # 已有局部表演标记优先保留；未标记正文才由自适应补充原文锚点事件。
+        # 已有局部表演标记优先保留；未标记正文才由自适应补充事件。
         events = (
             breeze_event_options(profile)
             if profile.kind == "breeze" and not parse_breeze_text(self.text).marked
@@ -112,6 +119,12 @@ class ProbabilityToneAdapter:
         attempts = 1 + self.features.probability_tone_retries
         for attempt in range(1, attempts + 1):
             messages = [{"role": "system", "content": prompt}, {"role": "user", "content": self.text}]
+            if self.source_text:
+                messages.append({"role": "user", "content": {
+                    "zh": "原文（仅供语气参考）：\n",
+                    "en": "Original text (delivery reference only):\n",
+                    "ja": "原文（話し方の参考のみ）：\n",
+                }[self.features.tone_prompt_language] + self.source_text})
             if self.style_hint:
                 messages.append({"role": "user", "content": {
                     "zh": "本次表达偏好（作为语气参考）：",
@@ -136,7 +149,7 @@ class ProbabilityToneAdapter:
                         model=self.features.probability_tone_task,
                         prompt=messages,
                         temperature=0.1,
-                        # 200 字自由描述及 Breeze 的原文事件锚点，在中日文分词下可超过 256/512 token。
+                        # 200 字自由描述及 Breeze 的事件锚点，在中日文分词下可超过 256/512 token。
                         max_tokens=2048 if profile.kind == "breeze" else 1024 if limit > 0 else 256,
                     ),
                     timeout=timeout,

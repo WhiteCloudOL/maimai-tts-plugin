@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock
 import asyncio
 import base64
 import hashlib
+import json
 
 import pytest
 
+from maimai_tts_contract.domain.breeze_control import event_tags
 from maimai_tts_contract.domain.models import Audio, TTSError
 from test_prompt_pipeline import CASES, TEXT
 from test_speech_correction import ReplyBot, prepare_reply, setup_bot
@@ -76,6 +78,24 @@ async def deliver(
         if after_twice:
             await bot.send_probability_reply_attachments(message=outgoing, sent=sent)
     return events
+
+
+async def test_probability_inserts_events_in_their_cleaned_segments(serve, service):
+    bot, calls, _ = await setup_bot(
+        serve, service, kind="breeze", strip_stage_directions=True, probability_tone_enabled=True,
+    )
+    first, second = "你好（微笑）呀。", "今天（点头）很开心。"
+    tag = event_tags("zh")["zh"][1]
+    bot.ctx.call_capability.return_value = {
+        "success": True, "response": json.dumps({"events": [{"before": "你好呀", "tag": tag}]}),
+    }
+    result = await convert(bot, [message(text(first)), message(text(second))], response=first + second)
+    assert [call["text"] for call in calls] == [tag + "你好呀。", "今天很开心。"]
+    assert [item["segments"][-1]["data"] for item in result] == [first, second]
+    bot.ctx.call_capability.assert_awaited_once()
+    prompt = bot.ctx.call_capability.await_args.kwargs["prompt"]
+    assert prompt[1]["content"] == "你好呀。\n今天很开心。"
+    assert first + "\n" + second in prompt[2]["content"]
 
 
 @pytest.mark.parametrize("kind", CASES)

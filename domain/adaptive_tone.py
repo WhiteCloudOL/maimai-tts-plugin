@@ -44,7 +44,7 @@ def breeze_event_options(profile: Profile) -> Dict[str, List[str]]:
 
 
 def apply_breeze_events(text: str, events: Tuple[BreezeEvent, ...]) -> str:
-    """按原文锚点插入事件；跨分段回复中，仅在包含对应锚点的分段应用。"""
+    """按朗读正文锚点插入事件；跨分段回复中，仅在包含对应锚点的分段应用。"""
     insertions: Dict[int, str] = {}
     for event in events:
         if event.before not in text:
@@ -152,9 +152,9 @@ def adaptive_prompt(
             selected, {"allowed_tones": json.dumps(tones), "direction_limit": "200", "event_tags": table}
         )
         formats = {
-            "zh": "仅允许 tone、direction、events。direction 是与正文同语言、不含方括号的单行字符串，最多200字符；events 是最多3项的数组，每项只能有 before 和 tag 两个字符串。before 须为实际正文中原样且唯一的1–80字符短语；tag 须完整照抄下表标签，全部事件来自同一种语言表，同一位置最多一个事件。禁止输出改写后的正文或虚构标签。",
-            "en": "Only tone, direction and events are allowed. direction: a single-line string in the dialogue language, no square brackets, max 200 characters. events: an array of at most 3 objects, each with only before and tag strings. before must be an exact unique 1–80-character phrase in the actual dialogue. Copy tag exactly from one listed language; one event per position. Never return rewritten dialogue or invented tags.",
-            "ja": "許可フィールドはtone、direction、eventsのみ。directionは本文と同言語の一行文字列、角括弧なし、最大200文字。eventsは最大3要素の配列で、各要素はbeforeとtagの文字列だけ。beforeは実際の本文に原形で一度だけ現れる1–80文字の句。tagは同じ言語の表から完全に写し、一か所一つ。改変本文や架空のタグは返さない。",
+            "zh": "仅允许 tone、direction、events。direction 是与正文同语言、不含方括号的单行字符串，最多200字符；events 是最多3项的数组，每项只能有 before 和 tag 两个字符串。before 须为朗读正文中原样且唯一的1–80字符短语；tag 须完整照抄下表标签，全部事件来自同一种语言表，同一位置最多一个事件。禁止输出改写后的正文或虚构标签。",
+            "en": "Only tone, direction and events are allowed. direction: a single-line string in the dialogue language, no square brackets, max 200 characters. events: an array of at most 3 objects, each with only before and tag strings. before must be an exact unique 1–80-character phrase in the spoken text. Copy tag exactly from one listed language; one event per position. Never return rewritten dialogue or invented tags.",
+            "ja": "許可フィールドはtone、direction、eventsのみ。directionは本文と同言語の一行文字列、角括弧なし、最大200文字。eventsは最大3要素の配列で、各要素はbeforeとtagの文字列だけ。beforeは朗読本文に原形で一度だけ現れる1–80文字の句。tagは同じ言語の表から完全に写し、一か所一つ。改変本文や架空のタグは返さない。",
         }
         sample_text, sample_direction = {
             "zh": ("你终于来了。我们一起面对。", "轻柔温暖"),
@@ -256,7 +256,7 @@ def parse_adaptive_tone(
                 or any(c in before for c in "\r\n")
                 or text.count(before) != 1
             ):
-                raise TTSError("Breeze before 须为原文中唯一的 1–80 字单行连续短语，不可改写")
+                raise TTSError("Breeze before 须为朗读正文中唯一的 1–80 字单行连续短语，不可改写")
             if not isinstance(tag, str):
                 raise TTSError("Breeze tag 须为事件表中的标签")
             languages &= {code for code, values in (event_options or {}).items() if tag in values}

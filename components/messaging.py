@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 import re
 
-from ..domain.models import Audio, Features, TTSError
+from ..domain.models import Audio, Features, StudioConfig, TTSError
 from ..domain.adaptive_tone import ToneAdapter
 from ..domain.prompts import DEFAULT_PROMPTS
 from ..services.intonation import clean_display_text
@@ -338,17 +338,21 @@ class MessagingMixin:
         voice: Optional[str] = None,
         speed: Optional[float] = None,
         tone_adapter: Optional[ToneAdapter] = None,
+        config: Optional[StudioConfig] = None,
     ) -> Audio:
         """合成音频并按工作台选项准备聊天语音格式。"""
         with trace_scope():
-            delivery_format = self.features.delivery_format
+            config = self.store.config if config is None else config
+            delivery_format = config.feature.delivery_format
             options: Dict[str, Any] = {}
             if tone_adapter is not None:
                 options["tone_adapter"] = tone_adapter
             audio = await self.service.synthesize(
-                text, voice=voice, speed=speed, delivery_format=delivery_format, **options
+                text, voice=voice, speed=speed, delivery_format=delivery_format, config=config, **options
             )
-            return await self.service.prepare_delivery(audio, delivery_format)
+            return await self.service.prepare_delivery(
+                audio, delivery_format, integer_seconds=config.feature.silk_integer_seconds,
+            )
 
     def _safe_error_message(self, error: TTSError) -> str:
         """生成可记录、可展示且不包含本插件凭据的错误信息。"""
