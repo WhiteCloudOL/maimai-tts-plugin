@@ -719,6 +719,7 @@ class Features(Model):
     api_max_jobs: int = Field(default=8, ge=1, le=32)
     delivery_format: Literal["silk", "source"] = "silk"
     silk_integer_seconds: bool = True
+    strip_stage_directions: bool = False
     command_enabled: bool = True
     tool_enabled: bool = True
     probability_enabled: bool = False

@@ -19,6 +19,7 @@ from ..infrastructure.voice_codec import voice_segment
 from ..services.intonation import validate_requested_direction, validate_requested_tone
 from ..services.format_correction import correct_speech_arguments
 from ..services.speech_input import validate_speech_arguments
+from ..services.tts import spoken_text_of
 from .adaptive_tone import ProbabilityToneAdapter
 
 
@@ -487,9 +488,12 @@ class ProbabilityMixin:
         source_keys: Dict[int, str] = {}
         adapter = None
         if self.features.probability_tone_enabled:
-            adapter = ProbabilityToneAdapter(
-                self.ctx, self.features, "\n".join(value for value in original_texts if value is not None), self.service.log
+            # 锚点的生成、校验与插入共用清洗后的正文，避免朗读文本与原文不一致时事件错位。
+            strip = self.features.strip_stage_directions
+            joined_spoken = "\n".join(
+                spoken_text_of(value, strip=strip) for value in original_texts if value is not None
             )
+            adapter = ProbabilityToneAdapter(self.ctx, self.features, joined_spoken, self.service.log)
         for index, (message, original) in enumerate(zip(messages, original_texts, strict=True)):
             if original is None:
                 continue

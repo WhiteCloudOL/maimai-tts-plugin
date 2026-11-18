@@ -5044,6 +5044,7 @@
             ["silk", "QQ 原生语音（SILK）"], ["source", "保留服务商原始格式"],
           ], "官方机器人、SnowLuma 与 NapCat 推荐 SILK；网页试听保留原始音频。")}</div>
           ${(f.delivery_format || "silk") === "silk" ? toggleField("feature.silk_integer_seconds", "输出整数秒语音", f.silk_integer_seconds ?? true, "SnowLuma 会四舍五入语音时长，开启后在末尾补静音至整数秒。") : ""}
+          ${toggleField("feature.strip_stage_directions", "朗读时剔除括号动作描写", f.strip_stage_directions ?? false, "朗读正文中的（动作描写）只应出现在文字消息里。开启后合成时剔除含中文的圆括号内容，文字消息保持原样。")}
           <div class="feature-fields">${selectField("feature.tone_prompt_language", "语音提示语言", f.tone_prompt_language || "zh", [
             ["zh", "中文"], ["en", "English"], ["ja", "日本語"],
           ], "工具说明与语调提示使用此语言。")}</div>`);

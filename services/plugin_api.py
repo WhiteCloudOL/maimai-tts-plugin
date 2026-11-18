@@ -24,7 +24,7 @@ from ..infrastructure.storage import ConfigStore
 from ..infrastructure.voice_codec import SILK_HEADER, voice_segment
 from .adaptive_tone import ProbabilityToneAdapter
 from .intonation import apply_tone, breeze_requests, clean_display_text
-from .tts import TTSService
+from .tts import TTSService, spoken_text_of
 
 
 Sender = Callable[..., Awaitable[Dict[str, Any]]]
@@ -308,8 +308,10 @@ class PluginAPIService:
         if not self._needs_analysis(request, profile):
             return dict(result, control_status="existing" if result["tone_supported"] else "unsupported",
                         control={"mode": "manual" if result["tone_supported"] else "off"}, llm_used=False)
-        adapter = ProbabilityToneAdapter(self.ctx, features, request.text, self.tts.log,
-                                        style_hint=request.control.style_hint, required=True, purpose="api")
+        adapter = ProbabilityToneAdapter(
+            self.ctx, features, spoken_text_of(request.text, strip=features.strip_stage_directions), self.tts.log,
+            style_hint=request.control.style_hint, required=True, purpose="api"
+        )
         try:
             decision = await adapter(profile)
         except TTSError as exc:
@@ -367,8 +369,14 @@ class PluginAPIService:
         _, prepared = self.prepare(request, config)
         selected: Dict[str, Profile] = {}
         decisions: Dict[str, Any] = {}
-        adapter = ProbabilityToneAdapter(self.ctx, config.feature, request.text, self.tts.log,
-                                        style_hint=request.control.style_hint, required=True, purpose="api")
+        # 结构化手动控制已按全部目标校验，统一序列化为现有合成链路识别的控制文本。
+        initial = prepared[0]
+        text = self._speech_text(request, self.transform(request, initial))
+        # 语调适配器与 synthesize 共用同一份最终朗读文本，事件锚点不会因清洗而错位。
+        adapter = ProbabilityToneAdapter(
+            self.ctx, config.feature, spoken_text_of(text, strip=config.feature.strip_stage_directions), self.tts.log,
+            style_hint=request.control.style_hint, required=True, purpose="api"
+        )
 
         def transform(profile: Profile) -> Profile:
             self.require_enabled()
@@ -381,9 +389,6 @@ class PluginAPIService:
             decisions[profile.id] = decision
             return decision
 
-        # 结构化手动控制已按全部目标校验，统一序列化为现有合成链路识别的控制文本。
-        initial = prepared[0]
-        text = self._speech_text(request, self.transform(request, initial))
         if request.output == "send":
             delivery = config.feature.delivery_format if request.delivery_format == "default" else request.delivery_format
         else:
