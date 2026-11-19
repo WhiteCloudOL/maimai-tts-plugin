@@ -5056,6 +5056,7 @@
           ${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}`);
         const probability = card("概率语音", "整轮回复抽取一次概率，所有分段沿用结果。", `
           ${toggleField("feature.probability_enabled", "启用概率语音", f.probability_enabled, "将普通文字回复按概率转成语音，指令返回与插件通知保持原样。")}
+          <p class="note" role="note">使用概率语音时，建议关闭 MaiBot 原生语音。可在 MaiBot 的「模型配置 → 分工 → 语音合成」中清空模型。</p>
           <div class="form-grid feature-fields">
             ${field("feature.probability", "转换概率（0–1）", f.probability, "0.2 表示约 20% 的回复转成语音。", "number", true)}
             ${field("feature.probability_min_text_length", "最短字符数", f.probability_min_text_length, "", "number")}
