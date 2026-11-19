@@ -164,6 +164,7 @@ class ProbabilityMixin:
         features = self.features
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
         targeted = self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
+        legacy_native_voice = self._uses_legacy_native_voice(reply_tool_args)
         tag_error = parsed.error
         breeze = parse_breeze_text(parsed.text)
         breeze_controls = False
@@ -174,7 +175,7 @@ class ProbabilityMixin:
             if breeze_controls and not breeze.display_text:
                 tag_error = "自动语音的控制标记后需要填写朗读正文"
         display_text = breeze.display_text if breeze_controls else parsed.text
-        if (parsed.tone or parsed.direction) and not tag_error:
+        if (parsed.tone or parsed.direction) and not (tag_error or legacy_native_voice):
             profile = self.primary_tone_profile()
             if profile is None:
                 tag_error = "整体语音路由尚待配置"
@@ -185,7 +186,7 @@ class ProbabilityMixin:
                         validate_requested_direction(profile, parsed.direction)
                 except TTSError as exc:
                     tag_error = str(exc)
-        if not tag_error and (parsed.tagged or breeze_controls):
+        if not (tag_error or legacy_native_voice) and (parsed.tagged or breeze_controls):
             profile = self.primary_tone_profile()
             if profile is not None:
                 try:
@@ -195,7 +196,7 @@ class ProbabilityMixin:
                     )
                 except TTSError as exc:
                     tag_error = str(exc)
-        if tag_error and self.config.plugin.enabled:
+        if tag_error and not legacy_native_voice and self.config.plugin.enabled:
             profile = self.primary_tone_profile()
             if profile is not None:
                 revision = self.store.config.revision
@@ -212,7 +213,7 @@ class ProbabilityMixin:
                     tag_error = ""
                 else:
                     tag_error = result.error or "语调纠正期间配置已变化，保留原文"
-        if tag_error:
+        if tag_error and not legacy_native_voice:
             self.service.log.warning("动态语调标签校验失败，保留纯文本", stream_id=session_id, error=tag_error)
 
         should_convert = False
@@ -220,12 +221,14 @@ class ProbabilityMixin:
         if self.config.plugin.enabled and self.features.probability_enabled and targeted and session_id:
             self._remove_expired_probability_states()
             existing = self._probability_reply_states.get(reply_id)
-            if existing is not None:
+            if existing is not None and not legacy_native_voice:
                 # 同一回复的重复 Hook 调用继续使用已经确认的结果。
                 should_convert = existing.stream_id == session_id and existing.should_convert
                 reason = "existing_reply_decision"
             else:
-                if tag_error:
+                if legacy_native_voice:
+                    reason = "legacy_native_voice"
+                elif tag_error:
                     reason = "invalid_tone_tag"
                 elif not display_text.strip():
                     reason = "empty_response"
@@ -559,6 +562,17 @@ class ProbabilityMixin:
     @staticmethod
     def _has_rich_reply_attachment(arguments: Any) -> bool:
         return isinstance(arguments, dict) and bool(arguments.get("attach_pic"))
+
+    @staticmethod
+    def _uses_legacy_native_voice(arguments: Any) -> bool:
+        """判断宿主是否会在回复扩展之后强制执行本轮原生合成。"""
+        if not isinstance(arguments, dict) or arguments.get("_prefer_reply_extension_voice") is True:
+            return False
+        modes = ("voice_only", "with_text")
+        supplement = arguments.get("reply_supplement")
+        return arguments.get("attach_voice") in modes or (
+            isinstance(supplement, dict) and supplement.get("attach_voice") in modes
+        )
 
     def _remove_expired_probability_states(self) -> None:
         now = monotonic()

@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import asyncio
 import base64
@@ -150,6 +150,40 @@ async def test_declared_emoji_and_mentions_do_not_cancel_whole_reply(serve, serv
     args = {"_reply_id": "declared", "plugin_options": {bot._probability_extension_name(): {}}, field: value}
     await bot.prepare_probability_tts_reply(response=TEXT, session_id="test-stream", reply_tool_args=args)
     assert bot._probability_reply_states["declared"].should_convert
+
+
+@pytest.mark.parametrize("mode", ["voice_only", "with_text"])
+@pytest.mark.parametrize("supplement", [False, True])
+@pytest.mark.parametrize("host_prefers_plugin", [False, True])
+async def test_probability_respects_host_voice_precedence(serve, service, mode, supplement, host_prefers_plugin):
+    bot, calls, _ = await setup_bot(serve, service, kind="breeze")
+    bot._sample_probability = Mock(return_value=True)
+    args = {"_reply_id": "attachment", "plugin_options": {bot._probability_extension_name(): {}}}
+    if supplement:
+        args["reply_supplement"] = {"attach_voice": mode}
+    else:
+        args["attach_voice"] = mode
+    if host_prefers_plugin:
+        args["_prefer_reply_extension_voice"] = True
+    tone = "happy" if host_prefers_plugin else "unknown"
+    raw = f"[mmtts:{tone}][轻笑]" + TEXT
+
+    prepared = await bot.prepare_probability_tts_reply(response=raw, session_id="test-stream", reply_tool_args=args)
+    response = prepared["modified_kwargs"]["response"]
+    assert response == (raw if host_prefers_plugin else TEXT)
+    messages = [message(text(response))]
+    transformed = await bot.handle_probability_tts(
+        "before_send", "attachment", session_id="test-stream", chat={"is_group_chat": False}, messages=messages,
+    )
+
+    if host_prefers_plugin:
+        bot._sample_probability.assert_called_once_with()
+        assert [call["text"] for call in calls] == ["[轻笑]" + TEXT]
+        assert [part["type"] for part in transformed["messages"][0]["segments"]] == ["text", "voice"]
+    else:
+        bot._sample_probability.assert_not_called()
+        assert not calls and transformed.get("messages", messages) == [message(text())]
+    bot.ctx.call_capability.assert_not_awaited()
 
 
 async def test_quote_keeps_text_and_reference_then_sends_voice_and_attachments_once(serve, service):
