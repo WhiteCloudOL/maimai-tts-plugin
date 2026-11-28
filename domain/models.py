@@ -722,6 +722,8 @@ class Features(Model):
     strip_stage_directions: bool = False
     command_enabled: bool = True
     tool_enabled: bool = True
+    tool_use_replyer: bool = False
+    tool_replyer_disable_splitter: bool = True
     probability_enabled: bool = False
     probability: float = Field(default=0.2, ge=0, le=1)
     probability_min_text_length: int = Field(default=1, ge=1, le=4096)

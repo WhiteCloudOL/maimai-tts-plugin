@@ -5051,6 +5051,9 @@
         const tools = card("命令与语音工具", "分别控制手动朗读和麦麦自主调用。", `
           ${toggleField("feature.command_enabled", "启用 /mmtts 语音命令", f.command_enabled, "通过 /mmtts、/tts 或 /语音 朗读正文，可在命令前提及麦麦。")}
           ${toggleField("feature.tool_enabled", "启用 LLM 语音工具", f.tool_enabled, "让麦麦在合适的时候调用语音工具。")}
+          ${toggleField("feature.tool_use_replyer", "改用回复模型生成语音正文", f.tool_use_replyer ?? false, "默认关闭，沿用 mmtts_speak 由规划器直接生成朗读文本；开启后改用 reply 的 voice_reply 扩展，由回复模型按人设生成正文后再合成语音。")}
+          ${f.tool_use_replyer ? toggleField("feature.tool_replyer_disable_splitter", "语音回复不拆分分段", f.tool_replyer_disable_splitter ?? true, "默认开启，仅关闭宿主文字分段并保留非分段后处理，将整段回复合为一条语音发送；关闭后沿用宿主分段配置。") : ""}
+          <p class="note" role="note">开启“改用回复模型生成语音正文”时，建议关闭 MaiBot 原生语音（模型配置 → 分工 → 语音合成），避免与原生语音附件同时启用；此模式下动态语调使用“动态语调”提示词模板。引用消息时先发引用文字再发语音，避免丢失引用或语音。</p>
           ${toggleField("feature.tool_keep_text", "工具回复同时保留文字", f.tool_keep_text, "先发文字，再单独发送语音。")}
           ${toggleField("feature.allow_voice_override", "允许工具临时指定音色", f.allow_voice_override)}
           ${toggleField("feature.allow_speed_override", "允许工具临时指定语速", f.allow_speed_override)}`);
@@ -6372,7 +6375,7 @@
             p.options.sample_rate = 44100;
         }
         dirty();
-        if (key === "feature.delivery_format") {
+        if (key === "feature.delivery_format" || key === "feature.tool_use_replyer") {
           render();
           return;
         }
