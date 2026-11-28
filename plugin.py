@@ -37,6 +37,7 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self._probability_reply_available_sessions: Set[str] = set()
         self._probability_prepare_scopes: Dict[str, Tuple[str, bool, float]] = {}
         self._voice_reply_states: Dict[str, VoiceReplyState] = {}
+        self._voice_reply_prompted_ids: Dict[str, float] = {}
         self._probability_voice_states: Dict[Tuple[str, str, str], List[ProbabilityVoiceState]] = {}
         self._probability_attachment_states: Dict[str, ProbabilityAttachmentState] = {}
 
@@ -91,6 +92,7 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self._probability_reply_available_sessions.clear()
         self._probability_prepare_scopes.clear()
         self._voice_reply_states.clear()
+        self._voice_reply_prompted_ids.clear()
         self._probability_voice_states.clear()
         self._probability_attachment_states.clear()
 
@@ -107,6 +109,8 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
             backups=len(config.fallbacks),
             command=config.feature.command_enabled,
             tool=config.feature.tool_enabled,
+            tool_use_replyer=config.feature.tool_use_replyer,
+            tool_replyer_disable_splitter=config.feature.tool_replyer_disable_splitter,
             auto_voice=config.feature.probability_enabled,
             probability=config.feature.probability,
             log_level=self.config.runtime.log_level,
@@ -116,7 +120,7 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self.service.log.debug(
             "语音触发方式",
             command="/tts <文本>",
-            tool="mmtts_speak",
+            tool="reply.voice_reply" if config.feature.tool_use_replyer else "mmtts_speak",
             automatic="由 LLM 回复扩展按整轮判定",
             natural_language="由主程序生成回复并调用语音工具",
         )

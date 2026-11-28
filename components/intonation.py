@@ -3,6 +3,7 @@
 from copy import deepcopy
 from maibot_sdk import HookHandler, Tool
 from maibot_sdk.types import HookMode
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from ..domain.breeze_control import PAUSE_EVENT_INDEX, event_tags
@@ -23,6 +24,11 @@ class IntonationMixin:
     async def handle_tone_options(self, **kwargs: Any) -> Dict[str, Any]:
         if not self.config.plugin.enabled or not self.features.tool_enabled:
             return {"success": False, "error": "语音工具当前未启用"}
+        if self.features.tool_use_replyer:
+            return {
+                "success": False,
+                "error": "当前已开启「改用回复模型生成语音正文」，语调规则会在 voice_reply 轮次自动注入回复模型，无需调用 mmtts_tone_options。",
+            }
         try:
             profile = self.primary_tone_profile()
             if profile is None:
@@ -94,7 +100,7 @@ class IntonationMixin:
     @HookHandler(
         "maisaka.planner.before_request",
         name="prepare_planner_tone_prompt",
-        description="对规划器隐藏旧直发语音工具并按开关整理 reply 语音回复扩展参数",
+        description="按配置维护规划器语音工具说明或 reply 语音回复扩展参数",
         mode=HookMode.BLOCKING,
         timeout_ms=1000,
     )
@@ -105,26 +111,75 @@ class IntonationMixin:
         if not tool_definitions:
             return {"action": "continue"}
         plugin_enabled = bool(self.config.plugin.enabled)
-        voice_reply_enabled = plugin_enabled and bool(self.features.tool_enabled)
+        tool_enabled = plugin_enabled and bool(self.features.tool_enabled)
+        use_replyer = tool_enabled and bool(self.features.tool_use_replyer)
         probability_active = (
             plugin_enabled
             and bool(self.features.probability_enabled)
             and self.features.probability > 0
             and bool(self.features.probability_group_enabled or self.features.probability_private_enabled)
         )
-        profile = self.primary_tone_profile() if voice_reply_enabled else None
+        profile = self.primary_tone_profile() if tool_enabled else None
         voice_ext = self._voice_reply_extension_name()
         prob_ext = self._probability_extension_name()
 
-        # 显式语音回复统一改走 reply 的 voice_reply 扩展经 Replyer 生成，对规划器隐藏旧直发工具和语调查询工具。
-        definitions = [
-            deepcopy(item)
-            for item in tool_definitions
-            if not (
-                isinstance(item.get("function"), dict)
-                and item["function"].get("name") in {"mmtts_speak", "mmtts_tone_options"}
+        if use_replyer:
+            # 开启 Replyer 语音回复模式时，对规划器隐藏旧直发工具和语调查询工具，改走 reply.plugin_options.voice_reply。
+            definitions = [
+                deepcopy(item)
+                for item in tool_definitions
+                if not (
+                    isinstance(item.get("function"), dict)
+                    and item["function"].get("name") in {"mmtts_speak", "mmtts_tone_options"}
+                )
+            ]
+        elif tool_enabled:
+            # 默认模式沿用原版 mmtts_speak、自定义工具提示词与动态语调下的 mmtts_tone_options。
+            prompt = self.dynamic_tone_prompt(automatic=False)
+            tool_prompt = (
+                prompt_template(self.features.prompt_overrides, profile.kind, "tool", self.features.tone_prompt_language)
+                if profile is not None else DEFAULT_PROMPTS["tool"][self.features.tone_prompt_language]
             )
-        ]
+            query_available = any(
+                isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_tone_options"
+                for item in tool_definitions
+            )
+            if prompt and query_available and "mmtts_tone_options" not in tool_prompt and "mmtts_tone_options" not in prompt:
+                query_hint = {
+                    "zh": "调用 mmtts_tone_options 可查看当前完整可用语调、音频事件及控制写法。",
+                    "en": "Call mmtts_tone_options for the complete current tone list, audio events and control syntax.",
+                    "ja": "現在の全語調、音声イベント、制御構文はmmtts_tone_optionsで確認できる。",
+                }
+                prompt += "\n" + query_hint[self.features.tone_prompt_language]
+            # 固定或关闭模式的规划请求只保留朗读工具；动态模式才暴露语调查询与标签协议。
+            definitions = [
+                deepcopy(item)
+                for item in tool_definitions
+                if prompt
+                or not (isinstance(item.get("function"), dict) and item["function"].get("name") == "mmtts_tone_options")
+            ]
+            for item in definitions:
+                function = item.get("function")
+                if isinstance(function, dict) and function.get("name") == "mmtts_speak":
+                    if profile is not None:
+                        function["description"] = speech_tool_prompt(profile, self.features, query_available=query_available)
+                        parameters = function.get("parameters")
+                        if isinstance(parameters, dict) and isinstance(parameters.get("properties"), dict):
+                            allowed = speech_tool_parameters(profile, self.features)
+                            parameters["properties"] = {
+                                key: dict(value, **allowed[key]) for key, value in parameters["properties"].items() if key in allowed
+                            }
+                            if "required" in parameters:
+                                parameters["required"] = [key for key in parameters["required"] if key in allowed]
+                        continue
+                    description = render_prompt(tool_prompt, {"dynamic_tone": prompt})
+                    # 旧的自定义说明未引用变量时，仍提供当前路由的完整规则；显式引用时只展开一次。
+                    if prompt and not has_variable(tool_prompt, "dynamic_tone"):
+                        description += "\n\n" + prompt
+                    function["description"] = description.strip()
+        else:
+            definitions = [deepcopy(item) for item in tool_definitions]
+
         for item in definitions:
             function = item.get("function")
             if not (isinstance(function, dict) and function.get("name") == "reply"):
@@ -136,34 +191,40 @@ class IntonationMixin:
             if not isinstance(ext_props, dict):
                 continue
             if voice_ext in ext_props:
-                if voice_reply_enabled:
+                if use_replyer:
                     ext_schema = ext_props[voice_ext]
-                    if isinstance(ext_schema, dict) and isinstance(ext_schema.get("properties"), dict):
-                        allowed = (
-                            {k: v for k, v in speech_tool_parameters(profile, self.features).items() if k != "text"}
-                            if profile is not None
-                            else {
-                                k: {}
-                                for k, ok in (
-                                    ("voice", self.features.allow_voice_override),
-                                    ("speed", self.features.allow_speed_override),
-                                )
-                                if ok
+                    if isinstance(ext_schema, dict):
+                        desc = ext_schema.get("description")
+                        if isinstance(desc, str):
+                            ext_schema["description"] = desc.replace("需在工作台开启“改用回复模型生成语音正文”；", "")
+                        if isinstance(ext_schema.get("properties"), dict):
+                            allowed = (
+                                {k: v for k, v in speech_tool_parameters(profile, self.features).items() if k != "text"}
+                                if profile is not None
+                                else {
+                                    k: {}
+                                    for k, ok in (
+                                        ("voice", self.features.allow_voice_override),
+                                        ("speed", self.features.allow_speed_override),
+                                    )
+                                    if ok
+                                }
+                            )
+                            ext_schema["properties"] = {
+                                key: dict(value, **allowed[key])
+                                for key, value in ext_schema["properties"].items()
+                                if key in allowed
                             }
-                        )
-                        ext_schema["properties"] = {
-                            key: dict(value, **allowed[key])
-                            for key, value in ext_schema["properties"].items()
-                            if key in allowed
-                        }
-                        if "required" in ext_schema:
-                            ext_schema["required"] = [key for key in ext_schema["required"] if key in allowed]
+                            if "required" in ext_schema:
+                                ext_schema["required"] = [key for key in ext_schema["required"] if key in allowed]
                 else:
                     ext_props.pop(voice_ext, None)
             if not probability_active:
                 ext_props.pop(prob_ext, None)
             if not ext_props:
                 root_props.pop("plugin_options", None)
+        if definitions == tool_definitions:
+            return {"action": "continue"}
         return {"action": "continue", "modified_kwargs": dict(kwargs, tool_definitions=definitions)}
 
     @HookHandler(
@@ -177,22 +238,37 @@ class IntonationMixin:
         self, extra_prompt: str = "", hook_name: str = "", **kwargs: Any
     ) -> Dict[str, Any]:
         del hook_name
-        if (
-            not self.config.plugin.enabled
-            or not self.features.probability_enabled
-            or self.features.probability <= 0
-            or not (self.features.probability_group_enabled or self.features.probability_private_enabled)
-        ):
+        if not self.config.plugin.enabled:
             return {"action": "continue"}
         reply_tool_args = kwargs.get("reply_tool_args")
-        if not self._is_probability_reply(reply_tool_args):
+        voice_active = (
+            bool(self.features.tool_enabled)
+            and bool(self.features.tool_use_replyer)
+            and self._is_voice_reply(reply_tool_args)
+        )
+        probability_active = (
+            not voice_active
+            and bool(self.features.probability_enabled)
+            and self.features.probability > 0
+            and bool(self.features.probability_group_enabled or self.features.probability_private_enabled)
+            and self._is_probability_reply(reply_tool_args)
+        )
+        if not (voice_active or probability_active):
             return {"action": "continue"}
-        if self._has_rich_reply_attachment(reply_tool_args) or self._uses_legacy_native_voice(reply_tool_args):
+        if self._uses_legacy_native_voice(reply_tool_args):
             return {"action": "continue"}
-        session_id = str(kwargs.get("session_id") or "")
-        if not self._is_prepared_probability_scope_allowed(reply_tool_args, session_id):
-            return {"action": "continue"}
-        adaptive = self.features.probability_tone_enabled
+        if voice_active and isinstance(reply_tool_args, dict):
+            reply_id = reply_tool_args.get("_reply_id", "")
+            if isinstance(reply_id, str) and reply_id:
+                self._remove_expired_probability_states()
+                self._voice_reply_prompted_map()[reply_id] = monotonic() + 600
+        if probability_active:
+            if self._has_rich_reply_attachment(reply_tool_args):
+                return {"action": "continue"}
+            session_id = str(kwargs.get("session_id") or "")
+            if not self._is_prepared_probability_scope_allowed(reply_tool_args, session_id):
+                return {"action": "continue"}
+        adaptive = self.features.probability_tone_enabled if probability_active else False
         if adaptive:
             # 其他平台由后置分类选择语调；Breeze 继续提示局部表演，避免丢失事件与停顿能力。
             profile = self.primary_tone_profile()
@@ -201,6 +277,13 @@ class IntonationMixin:
         prompt = self.dynamic_tone_prompt(automatic=True, adaptive=adaptive)
         if not prompt:
             return {"action": "continue"}
+        if voice_active:
+            voice_notice = {
+                "zh": "本轮回复将合成为语音发送；开头附带的控制标签（如 [mmtts:...]）会由插件自动识别并移除，不属于多余前后缀或括号，请按当下情绪自然选用。",
+                "en": "This reply will be synthesized as speech; any leading control tag (such as [mmtts:...]) is automatically parsed and stripped by the plugin and does not count as extra prefix or brackets, so feel free to use one when it fits the mood.",
+                "ja": "今回の返信は音声として合成・送信されます。先頭の制御タグ（[mmtts:...] など）はプラグインが自動で認識・除去するため余分な前後綴りや括弧には当たりません。場面の感情に合わせて自然に活用してください。",
+            }[self.features.tone_prompt_language]
+            prompt = voice_notice + "\n" + prompt
         modified = dict(kwargs)
         modified["extra_prompt"] = "\n\n".join(value for value in (extra_prompt, prompt) if value)
         return {"action": "continue", "modified_kwargs": modified}

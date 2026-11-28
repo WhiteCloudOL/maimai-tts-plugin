@@ -37,13 +37,17 @@ class ProbabilityReplyState:
 
 @dataclass
 class VoiceReplyState:
-    """显式语音回复扩展在分段前解析出的语调与状态，按 reply_id 隔离。"""
+    """显式语音回复扩展在分段前校验与解析出的参数状态，按 reply_id 隔离。"""
 
     stream_id: str
     tone_prefix: str
     expires_at: float
     breeze_controls: bool = False
+    should_convert: bool = True
+    skip_reason: str = ""
     tag_error: str = ""
+    voice: Optional[str] = None
+    speed: Optional[float] = None
     operation_deadline: float = 0
 
 
@@ -98,6 +102,44 @@ class ProbabilityMixin:
             states = {}
             self._voice_reply_states = states
         return states
+
+    def _voice_reply_prompted_map(self) -> Dict[str, float]:
+        prompted = getattr(self, "_voice_reply_prompted_ids", None)
+        if prompted is None:
+            prompted = {}
+            self._voice_reply_prompted_ids = prompted
+        return prompted
+
+    def _voice_reply_parameters(self, arguments: Any) -> Dict[str, Any]:
+        if not isinstance(arguments, dict):
+            return {}
+        options = arguments.get("plugin_options")
+        if not isinstance(options, dict):
+            return {}
+        params = options.get(self._voice_reply_extension_name())
+        return params if isinstance(params, dict) else {}
+
+    def _extract_voice_reply_overrides(self, parameters: Any) -> Tuple[Any, Any]:
+        params = parameters if isinstance(parameters, dict) else {}
+        raw_voice = params.get("voice")
+        selected_voice: Any = None
+        if self.features.allow_voice_override and raw_voice is not None:
+            selected_voice = raw_voice.strip() or None if isinstance(raw_voice, str) else raw_voice
+        raw_speed = params.get("speed")
+        selected_speed: Any = raw_speed if self.features.allow_speed_override else None
+        return selected_voice, selected_speed
+
+    @staticmethod
+    def _normalize_voice_override(voice: Any) -> Optional[str]:
+        if isinstance(voice, str):
+            return voice.strip() or None
+        return None
+
+    @staticmethod
+    def _normalize_speed_override(speed: Any) -> Optional[float]:
+        if isinstance(speed, (int, float)) and not isinstance(speed, bool) and math.isfinite(speed):
+            return float(speed)
+        return None
 
     def _is_probability_scope_allowed(self, chat: Any) -> bool:
         group = chat.get("is_group_chat") if isinstance(chat, dict) else None
@@ -187,7 +229,7 @@ class ProbabilityMixin:
             if not isinstance(arguments, dict):
                 continue
             if (
-                self._is_voice_reply(arguments)
+                (self.features.tool_enabled and self.features.tool_use_replyer and self._is_voice_reply(arguments))
                 or self._has_rich_reply_attachment(arguments)
                 or self._uses_legacy_native_voice(arguments)
             ):
@@ -230,7 +272,14 @@ class ProbabilityMixin:
         parsed = parse_tone_tag(response)
         features = self.features
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
-        explicit_voice = self._is_voice_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
+        explicit_voice = (
+            self.config.plugin.enabled
+            and features.tool_enabled
+            and features.tool_use_replyer
+            and self._is_voice_reply(reply_tool_args)
+            and isinstance(reply_id, str)
+            and bool(reply_id)
+        )
         targeted = (not explicit_voice) and self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
         legacy_native_voice = self._uses_legacy_native_voice(reply_tool_args)
         tag_error = parsed.error
@@ -243,6 +292,106 @@ class ProbabilityMixin:
             if breeze_controls and not breeze.display_text:
                 tag_error = "自动语音的控制标记后需要填写朗读正文"
         display_text = breeze.display_text if breeze_controls else parsed.text
+
+        if explicit_voice:
+            selected_voice, selected_speed = self._extract_voice_reply_overrides(
+                self._voice_reply_parameters(reply_tool_args)
+            )
+            if not legacy_native_voice:
+                profile = self.primary_tone_profile()
+                arguments: Dict[str, Any] = {"text": response}
+                if selected_voice is not None:
+                    arguments["voice"] = selected_voice
+                if selected_speed is not None:
+                    arguments["speed"] = selected_speed
+                if profile is None:
+                    if parsed.tone or parsed.direction or selected_voice is not None or selected_speed is not None:
+                        tag_error = "整体语音路由尚待配置"
+                else:
+                    if not tag_error:
+                        try:
+                            validate_speech_arguments(
+                                profile, arguments, self.service.settings.max_text_length,
+                                strip_parentheticals=features.strip_stage_directions,
+                            )
+                        except TTSError as exc:
+                            tag_error = str(exc)
+                    if tag_error:
+                        revision = self.store.config.revision
+                        result = await correct_speech_arguments(
+                            self.ctx, features, profile, arguments, self.service.log,
+                            automatic=False, max_text_length=self.service.settings.max_text_length,
+                        )
+                        if result.arguments is not None and self.store.config.revision == revision:
+                            response = result.arguments["text"]
+                            selected_voice = result.arguments.get("voice")
+                            selected_speed = result.arguments.get("speed")
+                            parsed = parse_tone_tag(response)
+                            breeze = parse_breeze_text(parsed.text)
+                            breeze_controls = profile.kind == "breeze" and breeze.marked
+                            display_text = breeze.display_text if breeze_controls else parsed.text
+                            tag_error = ""
+                        else:
+                            tag_error = result.error or "语调纠正期间配置已变化，保留原文"
+            if tag_error and not legacy_native_voice:
+                self.service.log.warning("显式语音参数校验失败，保留纯文本", stream_id=session_id, error=tag_error)
+
+            should_convert = not legacy_native_voice and not tag_error and bool(display_text.strip())
+            skip_reason = (
+                "legacy_native_voice" if legacy_native_voice else
+                "invalid_arguments" if tag_error else
+                "empty_response" if not display_text.strip() else ""
+            )
+            tone_prefix = (
+                f"[mmtts:{parsed.tone}]" if parsed.tone
+                else (f"[mmtts:style={parsed.direction}]" if parsed.direction else "")
+            ) if should_convert else ""
+            if session_id:
+                self._remove_expired_probability_states()
+                self._voice_reply_state_map()[reply_id] = VoiceReplyState(
+                    stream_id=session_id,
+                    tone_prefix=tone_prefix,
+                    expires_at=monotonic() + 600,
+                    breeze_controls=breeze_controls,
+                    should_convert=should_convert,
+                    skip_reason=skip_reason,
+                    tag_error=tag_error,
+                    voice=self._normalize_voice_override(selected_voice) if should_convert else None,
+                    speed=self._normalize_speed_override(selected_speed) if should_convert else None,
+                    operation_deadline=started + 540,
+                )
+            self.service.log.debug(
+                "显式语音回复前处理",
+                stream_id=session_id,
+                reply_id=reply_id,
+                convert=should_convert,
+                reason=skip_reason or "selected",
+                tone_prefix=tone_prefix,
+                breeze_controls=breeze_controls,
+                tag_error=tag_error,
+            )
+            if not display_text.strip():
+                return {"action": "abort", "custom_result": {"reason": tag_error or "控制标记后缺少可见正文"}}
+            if not should_convert:
+                if not parsed.tagged and not breeze_controls and response == original_response:
+                    return {"action": "continue"}
+                modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args, response=display_text)
+                return {"action": "continue", "modified_kwargs": modified}
+            modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args)
+            if breeze_controls:
+                # Breeze 局部事件标记不能被拆分或错字破坏，保留整段交给扩展合成。
+                modified["response"] = response
+                modified["skip_post_process"] = True
+                modified["enable_chinese_typo"] = False
+            else:
+                # 先剥离头部语调标签，仅关闭错别字避免语音读出错字；默认关闭宿主文字分段，避免多段语音割裂；
+                # 关闭“语音回复不拆分分段”后沿用宿主或前置 Hook 的分段配置，合成阶段按段补回同一语调前缀。
+                modified["response"] = display_text
+                if features.tool_replyer_disable_splitter:
+                    modified["enable_splitter"] = False
+                modified["enable_chinese_typo"] = False
+            return {"action": "continue", "modified_kwargs": modified}
+
         if (parsed.tone or parsed.direction) and not (tag_error or legacy_native_voice):
             profile = self.primary_tone_profile()
             if profile is None:
@@ -283,45 +432,6 @@ class ProbabilityMixin:
                     tag_error = result.error or "语调纠正期间配置已变化，保留原文"
         if tag_error and not legacy_native_voice:
             self.service.log.warning("动态语调标签校验失败，保留纯文本", stream_id=session_id, error=tag_error)
-
-        if explicit_voice:
-            tone_prefix = (
-                f"[mmtts:{parsed.tone}]" if parsed.tone
-                else (f"[mmtts:style={parsed.direction}]" if parsed.direction else "")
-            )
-            if self.config.plugin.enabled and self.features.tool_enabled and session_id:
-                self._remove_expired_probability_states()
-                self._voice_reply_state_map()[reply_id] = VoiceReplyState(
-                    stream_id=session_id,
-                    tone_prefix=tone_prefix,
-                    expires_at=monotonic() + 600,
-                    breeze_controls=breeze_controls,
-                    tag_error=tag_error,
-                    operation_deadline=started + 540,
-                )
-            self.service.log.debug(
-                "显式语音回复前处理",
-                stream_id=session_id,
-                reply_id=reply_id,
-                tone_prefix=tone_prefix,
-                breeze_controls=breeze_controls,
-                tag_error=tag_error,
-            )
-            if not display_text.strip():
-                return {"action": "abort", "custom_result": {"reason": tag_error or "控制标记后缺少可见正文"}}
-            modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args)
-            if breeze_controls and not tag_error:
-                # Breeze 局部事件标记不能被拆分或错字破坏，保留整段交给扩展合成。
-                modified["response"] = response
-                modified["skip_post_process"] = True
-                modified["enable_chinese_typo"] = False
-            else:
-                # 先剥离头部语调标签交给宿主正常分段，关闭错别字避免语音读出错字；合成阶段按段补回同一语调前缀。
-                modified["response"] = display_text
-                modified["skip_post_process"] = False
-                modified["enable_splitter"] = True
-                modified["enable_chinese_typo"] = False
-            return {"action": "continue", "modified_kwargs": modified}
 
         should_convert = False
         reason = "probability_disabled" if targeted else "not_probability_reply"
@@ -375,7 +485,7 @@ class ProbabilityMixin:
 
     @ReplyExtension(
         "voice_reply",
-        description="将本轮回复合成为语音发送（正文仍由回复模型按人设生成；想发语音或对方要求发语音时启用，默认直接传 {}）",
+        description="将本轮回复合成为语音发送（需在工作台开启“改用回复模型生成语音正文”；正文仍由回复模型按人设生成，默认直接传 {}）",
         parameters=[
             ToolParameterInfo(
                 name="voice",
@@ -405,16 +515,16 @@ class ProbabilityMixin:
     ) -> Dict[str, Any]:
         del text, chat, kwargs
         if phase == "prepare":
-            if not self.config.plugin.enabled or not self.features.tool_enabled:
-                return {}
-            prompt = self.dynamic_tone_prompt(automatic=True, adaptive=False)
-            return {"extra_prompt": prompt} if prompt else {}
+            # 平行回复补充器模式下宿主禁止在正文生成后经 prepare 返回 extra_prompt；
+            # 动态语调提示统一在 maisaka.replyer.before_request 中按本轮参数条件注入。
+            return {}
         if phase != "before_send":
             raise TTSError("未知的显式语音回复阶段")
         if not messages:
             raise TTSError("显式语音回复缺少待发送消息")
         self._remove_expired_probability_states()
         state = self._voice_reply_state_map().pop(reply_id, None)
+        prompted = self._voice_reply_prompted_map().pop(reply_id, None) is not None
         pairs = [
             (original, clean)
             for original in messages
@@ -426,35 +536,30 @@ class ProbabilityMixin:
         if (
             not self.config.plugin.enabled
             or not self.features.tool_enabled
+            or not self.features.tool_use_replyer
             or (state is not None and state.stream_id != session_id)
-            or (state is not None and bool(state.tag_error))
+            or (state is not None and not state.should_convert)
         ):
             reason = (
                 "plugin_disabled" if not self.config.plugin.enabled else
                 "tool_disabled" if not self.features.tool_enabled else
-                "reply_session_mismatch" if (state is not None and state.stream_id != session_id) else "invalid_tone_tag"
+                "voice_reply_disabled" if not self.features.tool_use_replyer else
+                "reply_session_mismatch" if (state is not None and state.stream_id != session_id) else
+                (state.skip_reason or "invalid_arguments")
             )
-            self.service.log.warning("跳过显式语音回复转换，保留原文字", stream_id=session_id, reply_id=reply_id, reason=reason)
+            if reason in {"plugin_disabled", "tool_disabled", "voice_reply_disabled", "legacy_native_voice"}:
+                self.service.log.debug("跳过显式语音回复转换，保留原文字", stream_id=session_id, reply_id=reply_id, reason=reason)
+            else:
+                self.service.log.warning("跳过显式语音回复转换，保留原文字", stream_id=session_id, reply_id=reply_id, reason=reason)
             return {"messages": cleaned} if cleaned != messages else {}
 
-        params = parameters if isinstance(parameters, dict) else {}
-        raw_voice = params.get("voice")
-        selected_voice = (
-            raw_voice.strip()
-            if self.features.allow_voice_override and isinstance(raw_voice, str) and raw_voice.strip()
-            else None
-        )
-        raw_speed = params.get("speed")
-        selected_speed = (
-            float(raw_speed)
-            if (
-                self.features.allow_speed_override
-                and isinstance(raw_speed, (int, float))
-                and not isinstance(raw_speed, bool)
-                and math.isfinite(raw_speed)
-            )
-            else None
-        )
+        if state is not None:
+            selected_voice = state.voice
+            selected_speed = state.speed
+        else:
+            raw_voice, raw_speed = self._extract_voice_reply_overrides(parameters)
+            selected_voice = self._normalize_voice_override(raw_voice)
+            selected_speed = self._normalize_speed_override(raw_speed)
         tone_prefix = state.tone_prefix if state is not None else ""
         original_texts: List[Optional[str]] = []
         for original, _ in pairs:
@@ -475,7 +580,9 @@ class ProbabilityMixin:
                     original_texts,
                     voice=selected_voice,
                     speed=selected_speed,
-                    use_adaptive_tone=False,
+                    use_adaptive_tone=(
+                        not prompted and self.features.probability_enabled and self.features.probability_tone_enabled
+                    ),
                 ),
                 timeout=budget,
             )
@@ -698,7 +805,7 @@ class ProbabilityMixin:
         # reply_to 仍是 QQ 官方被动回复的发送上下文；原语音的目标和路由字段沿用宿主消息。
         self.service.log.debug(
             "已整理概率语音回复", stream_id=key[0], reply_id=state.reply_id,
-            mode="text_and_voice" if quoted or self.features.probability_keep_text else "voice_only",
+            mode="text_and_voice" if quoted or keep_text else "voice_only",
         )
         return {"action": "continue", "modified_kwargs": dict(kwargs, message=updated, set_reply=False)}
 
@@ -840,6 +947,10 @@ class ProbabilityMixin:
         expired_voice_replies = [key for key, value in voice_replies.items() if value.expires_at <= now]
         for key in expired_voice_replies:
             del voice_replies[key]
+        prompted_ids = self._voice_reply_prompted_map()
+        expired_prompted = [key for key, expires_at in prompted_ids.items() if expires_at <= now]
+        for key in expired_prompted:
+            del prompted_ids[key]
         expired_attachments = [key for key, value in self._probability_attachment_states.items() if value.expires_at <= now]
         for key in expired_attachments:
             del self._probability_attachment_states[key]
@@ -855,3 +966,7 @@ class ProbabilityMixin:
         self._remove_expired_probability_states()
         for state in self._probability_reply_states.values():
             state.should_convert = False
+        for state in self._voice_reply_state_map().values():
+            state.should_convert = False
+            if not state.skip_reason:
+                state.skip_reason = "config_changed"

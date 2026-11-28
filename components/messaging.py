@@ -175,6 +175,18 @@ class MessagingMixin:
         if not self.features.tool_enabled:
             self.service.log.debug("跳过语音工具", reason="tool_disabled")
             return {"success": False, "error": "麦麦TTS语音 工具当前未启用"}
+        if self.features.tool_use_replyer:
+            plugin_id = getattr(self.ctx, "plugin_id", "") or "WhiteCloudOL.maimai-tts-plugin"
+            voice_ext = f"{plugin_id}.voice_reply"
+            self.service.log.debug("跳过直发语音工具", reason="tool_use_replyer")
+            return {
+                "success": False,
+                "error": (
+                    "当前已开启「改用回复模型生成语音正文」，已停用 mmtts_speak 直发语音；"
+                    f'请改用 reply 工具并在 plugin_options 中传入 {{"{voice_ext}": {{}}}}，'
+                    "由回复模型按人设生成正文后再合成语音。"
+                ),
+            }
         normalized_stream_id = stream_id.strip()
         if not normalized_stream_id:
             self.service.log.error("语音工具缺少真实聊天流")
