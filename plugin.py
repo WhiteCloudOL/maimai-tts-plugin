@@ -8,7 +8,13 @@ import json
 from .settings.config import TTSConfig
 from .components.messaging import MessagingMixin
 from .components.intonation import IntonationMixin
-from .components.probability import ProbabilityAttachmentState, ProbabilityMixin, ProbabilityReplyState, ProbabilityVoiceState
+from .components.probability import (
+    ProbabilityAttachmentState,
+    ProbabilityMixin,
+    ProbabilityReplyState,
+    ProbabilityVoiceState,
+    VoiceReplyState,
+)
 from .api.endpoints import PluginAPIMixin
 from .domain.models import TTSError
 from .services.tts import TTSService
@@ -29,6 +35,8 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self._public_api: Optional[PluginAPIService] = None
         self._probability_reply_states: Dict[str, ProbabilityReplyState] = {}
         self._probability_reply_available_sessions: Set[str] = set()
+        self._probability_prepare_scopes: Dict[str, Tuple[str, bool, float]] = {}
+        self._voice_reply_states: Dict[str, VoiceReplyState] = {}
         self._probability_voice_states: Dict[Tuple[str, str, str], List[ProbabilityVoiceState]] = {}
         self._probability_attachment_states: Dict[str, ProbabilityAttachmentState] = {}
 
@@ -81,6 +89,8 @@ class TTSPlugin(PluginAPIMixin, IntonationMixin, ProbabilityMixin, MessagingMixi
         self._store = None
         self._probability_reply_states.clear()
         self._probability_reply_available_sessions.clear()
+        self._probability_prepare_scopes.clear()
+        self._voice_reply_states.clear()
         self._probability_voice_states.clear()
         self._probability_attachment_states.clear()
 

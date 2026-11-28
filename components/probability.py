@@ -3,13 +3,14 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from maibot_sdk import HookHandler, ReplyExtension
-from maibot_sdk.types import ErrorPolicy, HookMode
+from maibot_sdk.types import ErrorPolicy, HookMode, ToolParameterInfo, ToolParamType
 from random import random
 from time import monotonic
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import asyncio
+import math
 
 from ..domain.breeze_control import parse_breeze_text
 from ..domain.intonation import parse_tone_tag
@@ -35,6 +36,18 @@ class ProbabilityReplyState:
 
 
 @dataclass
+class VoiceReplyState:
+    """显式语音回复扩展在分段前解析出的语调与状态，按 reply_id 隔离。"""
+
+    stream_id: str
+    tone_prefix: str
+    expires_at: float
+    breeze_controls: bool = False
+    tag_error: str = ""
+    operation_deadline: float = 0
+
+
+@dataclass
 class ProbabilityVoiceState:
     """等待 Host 确定引用方式的自有语音，保留对应的干净正文。"""
 
@@ -42,6 +55,8 @@ class ProbabilityVoiceState:
     text_segments: List[Dict[str, Any]]
     expires_at: float
     source_key: str
+    keep_text: Optional[bool] = None
+    quote_keep_voice: Optional[bool] = None
 
 
 @dataclass
@@ -62,11 +77,55 @@ class ProbabilityMixin:
     def _probability_extension_name(self) -> str:
         return f"{self.ctx.plugin_id}.probability_tts"
 
+    def _voice_reply_extension_name(self) -> str:
+        return f"{self.ctx.plugin_id}.voice_reply"
+
     def _is_probability_reply(self, arguments: Any) -> bool:
         if not isinstance(arguments, dict):
             return False
         options = arguments.get("plugin_options")
         return isinstance(options, dict) and self._probability_extension_name() in options
+
+    def _is_voice_reply(self, arguments: Any) -> bool:
+        if not isinstance(arguments, dict):
+            return False
+        options = arguments.get("plugin_options")
+        return isinstance(options, dict) and self._voice_reply_extension_name() in options
+
+    def _voice_reply_state_map(self) -> Dict[str, VoiceReplyState]:
+        states = getattr(self, "_voice_reply_states", None)
+        if states is None:
+            states = {}
+            self._voice_reply_states = states
+        return states
+
+    def _is_probability_scope_allowed(self, chat: Any) -> bool:
+        group = chat.get("is_group_chat") if isinstance(chat, dict) else None
+        return (
+            self.features.probability_group_enabled
+            if group is True
+            else (self.features.probability_private_enabled if group is False else False)
+        )
+
+    def _probability_prepare_scope_map(self) -> Dict[str, Tuple[str, bool, float]]:
+        scopes = getattr(self, "_probability_prepare_scopes", None)
+        if scopes is None:
+            scopes = {}
+            self._probability_prepare_scopes = scopes
+        return scopes
+
+    def _is_prepared_probability_scope_allowed(self, reply_tool_args: Any, session_id: str) -> bool:
+        if not isinstance(reply_tool_args, dict):
+            return True
+        reply_id = reply_tool_args.get("_reply_id", "")
+        if not isinstance(reply_id, str) or not reply_id:
+            return True
+        self._remove_expired_probability_states()
+        entry = self._probability_prepare_scope_map().get(reply_id)
+        if entry is None:
+            return True
+        saved_session_id, allowed, _ = entry
+        return allowed if (not session_id or saved_session_id == session_id) else True
 
     @HookHandler(
         "maisaka.planner.before_request",
@@ -110,6 +169,8 @@ class ProbabilityMixin:
         if (
             not self.config.plugin.enabled
             or not self.features.probability_enabled
+            or self.features.probability <= 0
+            or not (self.features.probability_group_enabled or self.features.probability_private_enabled)
             or session_id not in self._probability_reply_available_sessions
             or not output_items
         ):
@@ -124,6 +185,12 @@ class ProbabilityMixin:
                 continue
             arguments = call.get("args")
             if not isinstance(arguments, dict):
+                continue
+            if (
+                self._is_voice_reply(arguments)
+                or self._has_rich_reply_attachment(arguments)
+                or self._uses_legacy_native_voice(arguments)
+            ):
                 continue
             options = arguments.get("plugin_options", {})
             if not isinstance(options, dict):
@@ -163,7 +230,8 @@ class ProbabilityMixin:
         parsed = parse_tone_tag(response)
         features = self.features
         reply_id = reply_tool_args.get("_reply_id", "") if isinstance(reply_tool_args, dict) else ""
-        targeted = self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
+        explicit_voice = self._is_voice_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
+        targeted = (not explicit_voice) and self._is_probability_reply(reply_tool_args) and isinstance(reply_id, str) and bool(reply_id)
         legacy_native_voice = self._uses_legacy_native_voice(reply_tool_args)
         tag_error = parsed.error
         breeze = parse_breeze_text(parsed.text)
@@ -216,6 +284,45 @@ class ProbabilityMixin:
         if tag_error and not legacy_native_voice:
             self.service.log.warning("动态语调标签校验失败，保留纯文本", stream_id=session_id, error=tag_error)
 
+        if explicit_voice:
+            tone_prefix = (
+                f"[mmtts:{parsed.tone}]" if parsed.tone
+                else (f"[mmtts:style={parsed.direction}]" if parsed.direction else "")
+            )
+            if self.config.plugin.enabled and self.features.tool_enabled and session_id:
+                self._remove_expired_probability_states()
+                self._voice_reply_state_map()[reply_id] = VoiceReplyState(
+                    stream_id=session_id,
+                    tone_prefix=tone_prefix,
+                    expires_at=monotonic() + 600,
+                    breeze_controls=breeze_controls,
+                    tag_error=tag_error,
+                    operation_deadline=started + 540,
+                )
+            self.service.log.debug(
+                "显式语音回复前处理",
+                stream_id=session_id,
+                reply_id=reply_id,
+                tone_prefix=tone_prefix,
+                breeze_controls=breeze_controls,
+                tag_error=tag_error,
+            )
+            if not display_text.strip():
+                return {"action": "abort", "custom_result": {"reason": tag_error or "控制标记后缺少可见正文"}}
+            modified = dict(kwargs, session_id=session_id, reply_tool_args=reply_tool_args)
+            if breeze_controls and not tag_error:
+                # Breeze 局部事件标记不能被拆分或错字破坏，保留整段交给扩展合成。
+                modified["response"] = response
+                modified["skip_post_process"] = True
+                modified["enable_chinese_typo"] = False
+            else:
+                # 先剥离头部语调标签交给宿主正常分段，关闭错别字避免语音读出错字；合成阶段按段补回同一语调前缀。
+                modified["response"] = display_text
+                modified["skip_post_process"] = False
+                modified["enable_splitter"] = True
+                modified["enable_chinese_typo"] = False
+            return {"action": "continue", "modified_kwargs": modified}
+
         should_convert = False
         reason = "probability_disabled" if targeted else "not_probability_reply"
         if self.config.plugin.enabled and self.features.probability_enabled and targeted and session_id:
@@ -267,6 +374,137 @@ class ProbabilityMixin:
         return {"action": "continue", "modified_kwargs": modified}
 
     @ReplyExtension(
+        "voice_reply",
+        description="将本轮回复合成为语音发送（正文仍由回复模型按人设生成；想发语音或对方要求发语音时启用，默认直接传 {}）",
+        parameters=[
+            ToolParameterInfo(
+                name="voice",
+                param_type=ToolParamType.STRING,
+                description="可选的临时音色名称；仅在对方明确指定音色时填写，否则省略",
+                required=False,
+            ),
+            ToolParameterInfo(
+                name="speed",
+                param_type=ToolParamType.FLOAT,
+                description="可选的临时语速倍率；仅在需要调整语速时填写，否则省略",
+                required=False,
+            ),
+        ],
+        timeout_ms=600000,
+    )
+    async def handle_voice_reply(
+        self,
+        phase: str,
+        reply_id: str,
+        session_id: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        text: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
+        chat: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        del text, chat, kwargs
+        if phase == "prepare":
+            if not self.config.plugin.enabled or not self.features.tool_enabled:
+                return {}
+            prompt = self.dynamic_tone_prompt(automatic=True, adaptive=False)
+            return {"extra_prompt": prompt} if prompt else {}
+        if phase != "before_send":
+            raise TTSError("未知的显式语音回复阶段")
+        if not messages:
+            raise TTSError("显式语音回复缺少待发送消息")
+        self._remove_expired_probability_states()
+        state = self._voice_reply_state_map().pop(reply_id, None)
+        pairs = [
+            (original, clean)
+            for original in messages
+            for clean in self._clean_probability_messages([original], breeze=state is not None and state.breeze_controls)
+        ]
+        cleaned = [clean for _, clean in pairs]
+        if not cleaned:
+            raise TTSError("显式语音回复清理控制标记后缺少可见内容")
+        if (
+            not self.config.plugin.enabled
+            or not self.features.tool_enabled
+            or (state is not None and state.stream_id != session_id)
+            or (state is not None and bool(state.tag_error))
+        ):
+            reason = (
+                "plugin_disabled" if not self.config.plugin.enabled else
+                "tool_disabled" if not self.features.tool_enabled else
+                "reply_session_mismatch" if (state is not None and state.stream_id != session_id) else "invalid_tone_tag"
+            )
+            self.service.log.warning("跳过显式语音回复转换，保留原文字", stream_id=session_id, reply_id=reply_id, reason=reason)
+            return {"messages": cleaned} if cleaned != messages else {}
+
+        params = parameters if isinstance(parameters, dict) else {}
+        raw_voice = params.get("voice")
+        selected_voice = (
+            raw_voice.strip()
+            if self.features.allow_voice_override and isinstance(raw_voice, str) and raw_voice.strip()
+            else None
+        )
+        raw_speed = params.get("speed")
+        selected_speed = (
+            float(raw_speed)
+            if (
+                self.features.allow_speed_override
+                and isinstance(raw_speed, (int, float))
+                and not isinstance(raw_speed, bool)
+                and math.isfinite(raw_speed)
+            )
+            else None
+        )
+        tone_prefix = state.tone_prefix if state is not None else ""
+        original_texts: List[Optional[str]] = []
+        for original, _ in pairs:
+            value = self._extract_probability_text(original["segments"])
+            if value is not None and tone_prefix and not parse_tone_tag(value).tagged:
+                value = tone_prefix + value
+            original_texts.append(value)
+        if not any(value is not None for value in original_texts):
+            self.service.log.debug("跳过显式语音回复转换", stream_id=session_id, reply_id=reply_id, reason="no_convertible_text")
+            return {"messages": cleaned} if cleaned != messages else {}
+
+        converted = deepcopy(cleaned)
+        try:
+            budget = max(0, state.operation_deadline - monotonic()) if (state is not None and state.operation_deadline) else 540
+            source_keys = await asyncio.wait_for(
+                self._convert_probability_messages(
+                    converted,
+                    original_texts,
+                    voice=selected_voice,
+                    speed=selected_speed,
+                    use_adaptive_tone=False,
+                ),
+                timeout=budget,
+            )
+        except (TTSError, asyncio.TimeoutError) as exc:
+            error = "整轮语音合成超时" if isinstance(exc, asyncio.TimeoutError) else self._safe_error_message(exc)
+            self.service.log.warning("显式语音回复失败，发送原文字", stream_id=session_id, reply_id=reply_id, error=error)
+            return {"messages": cleaned} if cleaned != messages else {}
+        except Exception as exc:
+            self.service.log.unexpected("显式语音回复执行异常，保留原文", exc, stream_id=session_id, reply_id=reply_id)
+            return {"messages": cleaned} if cleaned != messages else {}
+        self.service.log.info(
+            "已将显式语音回复交给发送链", stream_id=session_id, reply_id=reply_id, segments=len(converted)
+        )
+        for index, (original, message, text_value) in enumerate(zip(cleaned, converted, original_texts, strict=True)):
+            if text_value is None:
+                continue
+            voice = next(segment for segment in message["segments"] if segment["type"] == "voice")
+            key = (session_id, voice["hash"], voice["data"])
+            self._probability_voice_states.setdefault(key, []).append(ProbabilityVoiceState(
+                reply_id=reply_id,
+                text_segments=deepcopy([segment for segment in original["segments"] if segment.get("type") == "text"]),
+                expires_at=monotonic() + 600,
+                source_key=source_keys[index],
+                keep_text=self.features.tool_keep_text,
+                quote_keep_voice=True,
+            ))
+        return {"messages": converted}
+
+    @ReplyExtension(
         "probability_tts",
         description="按工作台概率将 LLM 回复转换为语音，保留整轮长度判定与引用关系",
         parameters=[],
@@ -284,12 +522,20 @@ class ProbabilityMixin:
     ) -> Dict[str, Any]:
         del text, kwargs
         if phase == "prepare":
+            self._remove_expired_probability_states()
+            if isinstance(reply_id, str) and reply_id:
+                self._probability_prepare_scope_map()[reply_id] = (
+                    session_id,
+                    self._is_probability_scope_allowed(chat),
+                    monotonic() + 600,
+                )
             return {}
         if phase != "before_send":
             raise TTSError("未知的概率语音回复阶段")
         if not messages:
             raise TTSError("概率语音回复缺少待发送消息")
         self._remove_expired_probability_states()
+        self._probability_prepare_scope_map().pop(reply_id, None)
         # 先消费本次回复的判定，再执行耗时合成；并发回复与普通发送都无法借用这个结果。
         state = self._probability_reply_states.pop(reply_id, None)
         pairs = [
@@ -315,10 +561,7 @@ class ProbabilityMixin:
             )
             self.service.log.debug("跳过 LLM 回复语音转换", stream_id=session_id, reply_id=reply_id, reason=reason)
             return {"messages": cleaned} if cleaned != messages else {}
-        group = chat.get("is_group_chat") if isinstance(chat, dict) else None
-        scope_allowed = self.features.probability_group_enabled if group is True else (
-            self.features.probability_private_enabled if group is False else False
-        )
+        scope_allowed = self._is_probability_scope_allowed(chat)
         if not scope_allowed:
             self.service.log.debug(
                 "跳过 LLM 回复语音转换",
@@ -408,7 +651,9 @@ class ProbabilityMixin:
         quoted = set_reply or any(
             isinstance(segment, dict) and segment.get("type") == "reply" for segment in segments
         )
-        keep_voice = not quoted or self.features.probability_quote_keep_text
+        quote_keep_voice = self.features.probability_quote_keep_text if state.quote_keep_voice is None else state.quote_keep_voice
+        keep_text = self.features.probability_keep_text if state.keep_text is None else state.keep_text
+        keep_voice = not quoted or quote_keep_voice
         if not keep_voice:
             # 自动引用与 quote_previous 由宿主稍后判定，沿用原来只发送引用正文的处理。
             arranged = [deepcopy(segment) for segment in segments if segment is not voice]
@@ -419,7 +664,7 @@ class ProbabilityMixin:
             )}
 
         before, after = delivery_attachments(segments)
-        if quoted or self.features.probability_keep_text:
+        if quoted or keep_text:
             arranged = deepcopy([segment for segment in segments if segment.get("type") == "text"])
             if not arranged:
                 arranged = deepcopy(state.text_segments)
@@ -485,14 +730,20 @@ class ProbabilityMixin:
         return {"action": "continue"}
 
     async def _convert_probability_messages(
-        self, messages: List[Dict[str, Any]], original_texts: List[Optional[str]]
+        self,
+        messages: List[Dict[str, Any]],
+        original_texts: List[Optional[str]],
+        *,
+        voice: Optional[str] = None,
+        speed: Optional[float] = None,
+        use_adaptive_tone: bool = True,
     ) -> Dict[int, str]:
         """合成目标正文并计算附件身份，全部完成后由调用方一次登记发送状态。"""
         source_keys: Dict[int, str] = {}
         adapter = None
         config = self.store.config
         features = config.feature
-        if features.probability_tone_enabled:
+        if use_adaptive_tone and features.probability_tone_enabled:
             # 锚点的生成、校验与插入共用清洗后的正文，避免朗读文本与原文不一致时事件错位。
             originals = [value for value in original_texts if value is not None]
             joined_spoken = "\n".join(
@@ -503,7 +754,9 @@ class ProbabilityMixin:
         for index, (message, original) in enumerate(zip(messages, original_texts, strict=True)):
             if original is None:
                 continue
-            audio = await self._synthesize_audio(text=original, tone_adapter=adapter, config=config)
+            audio = await self._synthesize_audio(
+                text=original, voice=voice, speed=speed, tone_adapter=adapter, config=config,
+            )
             # voice 的 data 是已知朗读正文，二进制由独立字段传递；Host 据此记录语音内容。
             display_text = audio.display_text if audio.display_text is not None else parse_tone_tag(original).text
             segment = await asyncio.to_thread(voice_segment, audio, display_text)
@@ -579,6 +832,14 @@ class ProbabilityMixin:
         expired = [key for key, value in self._probability_reply_states.items() if value.expires_at <= now]
         for key in expired:
             del self._probability_reply_states[key]
+        prepare_scopes = self._probability_prepare_scope_map()
+        expired_scopes = [key for key, (_, _, expires_at) in prepare_scopes.items() if expires_at <= now]
+        for key in expired_scopes:
+            del prepare_scopes[key]
+        voice_replies = self._voice_reply_state_map()
+        expired_voice_replies = [key for key, value in voice_replies.items() if value.expires_at <= now]
+        for key in expired_voice_replies:
+            del voice_replies[key]
         expired_attachments = [key for key, value in self._probability_attachment_states.items() if value.expires_at <= now]
         for key in expired_attachments:
             del self._probability_attachment_states[key]
